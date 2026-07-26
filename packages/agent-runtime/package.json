@@ -1,0 +1,26 @@
+{
+  "name": "@flowmind/agent-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "corepack pnpm --filter @flowmind/agent-core build && corepack pnpm run build && node --experimental-loader ./test-loader.mjs --test dist/runtime.test.js"
+  },
+  "dependencies": {
+    "@flowmind/agent-core": "workspace:*",
+    "@flowmind/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

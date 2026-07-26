@@ -1,0 +1,27 @@
+{
+  "name": "@flowmind/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "tsx --test src/server.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@flowmind/agent-core": "workspace:*",
+    "@flowmind/agent-memory": "workspace:*",
+    "@flowmind/agent-runtime": "workspace:*",
+    "@flowmind/engine": "workspace:*",
+    "@flowmind/node-core": "workspace:*",
+    "@flowmind/schema": "workspace:*",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

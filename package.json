@@ -1,0 +1,30 @@
+{
+  "name": "flowmind",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "build": "turbo build",
+    "check": "corepack pnpm typecheck:all && corepack pnpm --filter @flowmind/api build && corepack pnpm --filter @flowmind/editor build",
+    "dev": "turbo dev",
+    "dev:api": "corepack pnpm --filter @flowmind/api dev",
+    "dev:agents": "corepack pnpm --filter @flowmind/agents dev",
+    "dev:editor": "corepack pnpm --filter @flowmind/editor dev",
+    "lint": "eslint .",
+    "smoke:execute": "node scripts/smoke-execute.mjs",
+    "setup": "corepack pnpm install",
+    "start": "corepack pnpm --parallel --filter @flowmind/api --filter @flowmind/editor --filter @flowmind/agents dev",
+    "test": "corepack pnpm --filter @flowmind/agent-core test && corepack pnpm --filter @flowmind/agent-runtime test && corepack pnpm --filter @flowmind/agent-memory test && corepack pnpm --filter @flowmind/api test",
+    "typecheck": "turbo typecheck",
+    "typecheck:all": "corepack pnpm -r typecheck",
+    "format": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}
