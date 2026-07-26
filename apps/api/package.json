@@ -14,9 +14,13 @@
     "@flowmind/agent-core": "workspace:*",
     "@flowmind/agent-memory": "workspace:*",
     "@flowmind/agent-runtime": "workspace:*",
+    "@flowmind/channel-core": "workspace:*",
+    "@flowmind/channel-memory": "workspace:*",
+    "@flowmind/channel-runtime": "workspace:*",
     "@flowmind/engine": "workspace:*",
     "@flowmind/node-core": "workspace:*",
     "@flowmind/schema": "workspace:*",
+    "@flowmind/whatsapp-web": "workspace:*",
     "fastify": "^5.2.1"
   },
   "devDependencies": {

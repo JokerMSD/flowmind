@@ -45,6 +45,12 @@ export interface ReminderSchedule {
   readonly timezone: string;
 }
 
+export interface ReminderTarget {
+  readonly channelId: string;
+  readonly connectionId: string;
+  readonly conversationId: string;
+}
+
 export interface Reminder {
   readonly id: string;
   readonly agentId: AgentId;
@@ -52,6 +58,7 @@ export interface Reminder {
   readonly message: string;
   readonly schedule: ReminderSchedule;
   readonly enabled: boolean;
+  readonly target?: ReminderTarget;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

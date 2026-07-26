@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@flowmind/channel-core": ["../channel-core/dist/index.d.ts"],
+      "@flowmind/channel-runtime": ["../channel-runtime/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

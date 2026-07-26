@@ -1,0 +1,25 @@
+{
+  "name": "@flowmind/channel-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "corepack pnpm --filter @flowmind/channel-core build && corepack pnpm run build && node --experimental-loader ./test-loader.mjs --test dist/runtime.test.js"
+  },
+  "dependencies": {
+    "@flowmind/channel-core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

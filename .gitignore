@@ -5,6 +5,8 @@ dist/
 .turbo/
 coverage/
 storage/
+whatsapp-auth/
+.flowmind/whatsapp-auth/
 *.log
 *.tsbuildinfo
 .env

@@ -1,8 +1,17 @@
 import {
-  AgentDisabledError, AgentNotFoundError, ReminderNotFoundError, normalizeReminderMessage, normalizeReminderSchedule,
+  AgentDisabledError,
+  AgentNotFoundError,
+  ReminderNotFoundError,
+  normalizeReminderMessage,
+  normalizeReminderSchedule,
 } from "@flowmind/agent-core";
 import type {
-  AgentRepository, Clock, Reminder, ReminderRepository, ReminderScheduleInput,
+  AgentRepository,
+  Clock,
+  Reminder,
+  ReminderRepository,
+  ReminderScheduleInput,
+  ReminderTarget,
 } from "@flowmind/agent-core";
 import type { IdentifierGenerator } from "./agent-runtime.js";
 
@@ -12,6 +21,7 @@ export interface ReminderInput {
   readonly message: string;
   readonly schedule: ReminderScheduleInput;
   readonly enabled: boolean;
+  readonly target?: ReminderTarget;
 }
 
 export class ReminderService {
@@ -33,7 +43,12 @@ export class ReminderService {
   public async update(id: string, input: ReminderInput): Promise<Reminder> {
     const current = await this.requireReminder(id);
     await this.requireEnabledAgent(input.agentId);
-    const updated = this.build(current.id, input, current.createdAt, this.clock.now().toISOString());
+    const updated = this.build(
+      current.id,
+      input,
+      current.createdAt,
+      this.clock.now().toISOString(),
+    );
     await this.reminders.save(updated);
     return updated;
   }
@@ -52,8 +67,15 @@ export class ReminderService {
 
   private build(id: string, input: ReminderInput, createdAt: string, updatedAt: string): Reminder {
     return {
-      id, agentId: input.agentId, type: input.type, message: normalizeReminderMessage(input.message),
-      schedule: normalizeReminderSchedule(input.schedule), enabled: input.enabled, createdAt, updatedAt,
+      id,
+      agentId: input.agentId,
+      type: input.type,
+      message: normalizeReminderMessage(input.message),
+      schedule: normalizeReminderSchedule(input.schedule),
+      enabled: input.enabled,
+      ...(input.target === undefined ? {} : { target: input.target }),
+      createdAt,
+      updatedAt,
     };
   }
 
