@@ -149,6 +149,28 @@ Regra arquitetural: `flowmind/` nao deve importar arquivos de `src/`, `public/`
 ou `config.js` da raiz. Se algum dado do bot for necessario, ele deve passar por
 um contrato publico.
 
+## WhatsApp
+
+O suporte inicial e o canal experimental **WhatsApp Web Channel Alpha 0.3**,
+nao oficial, baseado em Baileys `6.7.23`. Ele deve viver em um adaptador
+substituivel (por exemplo, `packages/node-whatsapp`) e nao pode acoplar a engine
+ao protocolo, ao filesystem de auth ou ao painel.
+
+O adaptador deve modelar `provider`, `connectionId`, estado de conexao,
+credencial, eventos de entrada/saida, idempotencia e politicas de opt-in. Cada
+`connectionId` possui uma unica instancia, fila e area de auth persistente.
+Filesystem efemero, envio em massa e uso em producao nao sao suportados pelo
+Alpha. QR, login, reconexao, logout e diagnostico sao operacoes administrativas
+protegidas e o QR nunca pertence ao terminal.
+
+O contrato deve permitir coexistencia entre provedores por `connectionId`, com
+credenciais e filas separadas. A evolucao comercial recomendada e a WhatsApp
+Cloud API oficial, mas ela e apenas um plano nesta fase e **nao esta
+implementada**. O roteiro `whatsapp:verify` deve validar somente o que consegue
+observar: versao fixada, persistencia, isolamento, protecao, ciclo de vida e
+teste opt-in; resultados nao executados devem permanecer explicitamente
+`not_run`.
+
 ## Camadas
 
 ### Shared

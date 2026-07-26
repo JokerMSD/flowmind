@@ -1,0 +1,455 @@
+.wa-shell {
+  margin: 0 auto;
+  max-width: 1480px;
+  min-height: 100vh;
+  padding: 32px;
+}
+.wa-header,
+.wa-connection,
+.wa-panel-title,
+.wa-chat > header,
+.wa-actions,
+.wa-controls,
+.wa-toggles {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+.wa-header {
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+.wa-header h1 {
+  font-size: clamp(25px, 3vw, 34px);
+  letter-spacing: -0.035em;
+  margin: 4px 0 0;
+}
+.wa-kicker {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+.wa-notice {
+  background: #10221d;
+  border: 1px solid #245341;
+  border-radius: 10px;
+  color: #b9f5dc;
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+.wa-connection,
+.wa-conversations,
+.wa-chat {
+  background: color-mix(in srgb, var(--panel) 93%, #16352e);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 16px 42px #0000001c;
+}
+.wa-connection {
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 20px;
+}
+.wa-connection h2 {
+  font-size: 18px;
+  margin: 7px 0 0;
+}
+.wa-connection p,
+.wa-chat header p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+.wa-controls {
+  margin-left: auto;
+}
+.wa-controls button,
+.wa-actions button,
+.wa-link {
+  background: #171c24;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 12px;
+  transition:
+    background 0.18s,
+    border-color 0.18s,
+    transform 0.18s;
+}
+.wa-controls button:hover:not(:disabled),
+.wa-actions button:hover:not(:disabled),
+.wa-link:hover {
+  background: var(--panel-raised);
+  border-color: #526274;
+}
+.wa-controls button:active:not(:disabled),
+.wa-actions button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.wa-primary {
+  background: var(--accent) !important;
+  border: 0 !important;
+  color: #04120e !important;
+  font-weight: 800 !important;
+  padding: 10px 15px !important;
+}
+.wa-danger {
+  color: #fda4af !important;
+}
+.wa-link {
+  background: transparent;
+}
+.wa-status {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.wa-status::before {
+  background: var(--muted);
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 7px;
+  margin-right: 7px;
+  width: 7px;
+}
+.wa-status.connected {
+  color: var(--accent);
+}
+.wa-status.connected::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px #42d3921a;
+}
+.wa-status.connecting,
+.wa-status.reconnecting,
+.wa-status.waiting_qr {
+  color: #facc15;
+}
+.wa-status.connecting::before,
+.wa-status.reconnecting::before,
+.wa-status.waiting_qr::before {
+  background: #facc15;
+}
+.wa-status.error {
+  color: var(--danger);
+}
+.wa-status.error::before {
+  background: var(--danger);
+}
+.wa-toggles {
+  border-left: 1px solid var(--line);
+  margin-left: 4px;
+  padding-left: 16px;
+}
+.wa-switch {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  white-space: nowrap;
+}
+.wa-switch input {
+  display: none;
+}
+.wa-switch i {
+  background: #303946;
+  border-radius: 99px;
+  height: 20px;
+  position: relative;
+  width: 36px;
+}
+.wa-switch i::after {
+  background: white;
+  border-radius: 50%;
+  content: "";
+  height: 14px;
+  left: 3px;
+  position: absolute;
+  top: 3px;
+  transition: transform 0.18s;
+  width: 14px;
+}
+.wa-switch input:checked + i {
+  background: var(--accent);
+}
+.wa-switch input:checked + i::after {
+  transform: translateX(16px);
+}
+.wa-switch input:disabled + i {
+  opacity: 0.5;
+}
+.wa-qr-wrap {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  margin-left: auto;
+}
+.wa-qr {
+  background: white;
+  border-radius: 9px;
+  padding: 6px;
+  width: 132px;
+}
+.wa-qr-wrap small,
+.wa-qr-note {
+  color: var(--muted);
+  font-size: 11px;
+  max-width: 170px;
+  text-align: center;
+}
+.wa-qr-note {
+  margin-left: auto;
+}
+.wa-workspace {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 330px minmax(0, 1fr);
+}
+.wa-conversations {
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 260px);
+  min-height: 580px;
+  padding: 14px;
+}
+.wa-panel-title {
+  justify-content: space-between;
+}
+.wa-panel-title h2,
+.wa-chat h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.wa-panel-title span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.wa-conversations input,
+.wa-conversations select,
+.wa-actions select,
+.wa-compose textarea,
+.wa-login input {
+  background: #0b0e13;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  padding: 9px 10px;
+}
+.wa-conversations input:focus,
+.wa-conversations select:focus,
+.wa-actions select:focus,
+.wa-compose textarea:focus,
+.wa-login input:focus {
+  border-color: var(--accent);
+  outline: 2px solid #42d39226;
+}
+.wa-filter-label {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0;
+}
+.wa-list {
+  overflow: auto;
+}
+.wa-list > button {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 13px 9px;
+  position: relative;
+  text-align: left;
+  width: 100%;
+}
+.wa-list > button:hover,
+.wa-list > button.selected {
+  background: var(--panel-raised);
+}
+.wa-list > button.selected {
+  box-shadow: inset 3px 0 var(--accent);
+}
+.wa-list strong {
+  font-size: 13px;
+}
+.wa-list small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-mode {
+  color: var(--accent);
+  font-size: 10px;
+  font-style: normal;
+}
+.wa-mode.blocked {
+  color: #fda4af;
+}
+.wa-mode.disabled,
+.wa-mode.paused {
+  color: #facc15;
+}
+.wa-list b {
+  background: var(--accent);
+  border-radius: 10px;
+  color: #04120e;
+  font-size: 10px;
+  padding: 2px 6px;
+  position: absolute;
+  right: 8px;
+  top: 12px;
+}
+.wa-chat {
+  display: grid;
+  grid-template-rows: auto minmax(350px, 1fr) auto;
+  min-height: 580px;
+}
+.wa-chat > header {
+  border-bottom: 1px solid var(--line);
+  justify-content: space-between;
+  padding: 15px 17px;
+}
+.wa-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  padding: 20px;
+}
+.wa-message {
+  border-radius: 12px;
+  max-width: 76%;
+  padding: 10px 12px;
+}
+.wa-message p {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.wa-message small {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  margin-top: 5px;
+}
+.wa-message.incoming {
+  align-self: flex-start;
+  background: var(--panel-raised);
+}
+.wa-message.outgoing {
+  align-self: flex-end;
+  background: #15352d;
+}
+.wa-compose {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr auto;
+  padding: 12px;
+}
+.wa-compose textarea {
+  min-height: 46px;
+  resize: vertical;
+}
+.wa-empty {
+  align-self: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin: auto;
+  padding: 18px;
+  text-align: center;
+}
+.wa-login,
+.wa-loading {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+.wa-login form {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px #0004;
+  display: grid;
+  gap: 14px;
+  padding: 32px;
+  width: min(400px, calc(100% - 32px));
+}
+.wa-login h1 {
+  margin: 0;
+}
+.wa-login label {
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+.wa-login p,
+.wa-login small {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+button:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+@media (max-width: 980px) {
+  .wa-workspace {
+    grid-template-columns: 1fr;
+  }
+  .wa-conversations {
+    max-height: 370px;
+    min-height: 300px;
+  }
+  .wa-chat {
+    min-height: 550px;
+  }
+  .wa-toggles {
+    border-left: 0;
+    margin-left: 0;
+    padding-left: 0;
+  }
+}
+@media (max-width: 680px) {
+  .wa-shell {
+    padding: 14px;
+  }
+  .wa-connection,
+  .wa-chat > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .wa-controls,
+  .wa-qr-wrap,
+  .wa-qr-note {
+    margin-left: 0;
+  }
+  .wa-controls {
+    flex-wrap: wrap;
+  }
+  .wa-compose {
+    grid-template-columns: 1fr;
+  }
+  .wa-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+  .wa-actions select,
+  .wa-actions button {
+    width: 100%;
+  }
+}
