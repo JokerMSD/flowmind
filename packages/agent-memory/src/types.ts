@@ -12,5 +12,6 @@ export type {
   ReminderRepository,
   ReminderSchedule,
   SessionRepository,
+  SessionVersion,
   Weekday,
 } from "@flowmind/agent-core";

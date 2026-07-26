@@ -1,4 +1,5 @@
 export { JsonCollection, JsonPersistenceError } from "./json-collection.js";
+export { SessionConflictError } from "@flowmind/agent-core";
 export {
   JsonAgentRepository,
   JsonReminderOccurrenceRepository,
@@ -20,6 +21,7 @@ export type {
   ReminderRepository,
   ReminderSchedule,
   SessionRepository,
+  SessionVersion,
   StoredAgent,
   Weekday,
 } from "./types.js";

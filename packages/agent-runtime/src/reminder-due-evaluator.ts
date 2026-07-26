@@ -6,6 +6,7 @@ export class TimezoneReminderDueEvaluator implements ReminderDueEvaluator {
     const local = localDateTime(now, reminder.schedule.timezone);
     if (!reminder.schedule.daysOfWeek.includes(local.weekday) || !reminder.schedule.times.includes(local.time)) return null;
     const scheduledFor = `${local.date}T${local.time}:00${local.offset}`;
+    if (Date.parse(reminder.createdAt) > Date.parse(scheduledFor)) return null;
     return {
       id: `${reminder.id}:${scheduledFor}`,
       reminderId: reminder.id,

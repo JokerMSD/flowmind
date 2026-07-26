@@ -9,6 +9,7 @@ import {
   JsonReminderOccurrenceRepository,
   JsonReminderRepository,
   JsonSessionRepository,
+  SessionConflictError,
   seedCsnf,
 } from "../dist/index.js";
 
@@ -63,6 +64,39 @@ test("serializa gravacoes concorrentes sem perder sessoes", async (t) => {
   const sessions = await new JsonSessionRepository(path).list();
   assert.equal(sessions.length, 40);
   assert.equal((await readdir(path)).some((name) => name.endsWith(".tmp")), false);
+});
+
+test("rejeita conflito otimista de sessao por updatedAt e ultima mensagem", async (t) => {
+  const path = await storage();
+  t.after(() => rm(path, { recursive: true, force: true }));
+  const repository = new JsonSessionRepository(path);
+  const initial = session("shared");
+  await repository.save(initial);
+  const expected = { updatedAt: initial.updatedAt, lastMessageId: undefined };
+  const first = {
+    ...initial,
+    updatedAt: "2026-07-26T00:01:00.000Z",
+    messages: [{
+      id: "message-1", role: "user", content: "Primeira",
+      timestamp: "2026-07-26T00:01:00.000Z",
+    }],
+  };
+  const second = {
+    ...initial,
+    updatedAt: "2026-07-26T00:01:00.000Z",
+    messages: [{
+      id: "message-2", role: "user", content: "Segunda",
+      timestamp: "2026-07-26T00:01:00.000Z",
+    }],
+  };
+  const results = await Promise.allSettled([
+    repository.save(first, expected),
+    new JsonSessionRepository(path).save(second, expected),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const rejected = results.find((result) => result.status === "rejected");
+  assert.ok(rejected?.reason instanceof SessionConflictError);
+  assert.equal((await repository.findById("shared"))?.messages.length, 1);
 });
 
 test("relata JSON invalido sem sobrescrever o arquivo", async (t) => {

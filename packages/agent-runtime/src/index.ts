@@ -6,7 +6,7 @@ export type { ConversationContext, ConversationInput, ConversationOutput, Conver
 export { FakeConversationProvider, defaultConversationRules } from "./fake-conversation-provider.js";
 export { InAppReminderDeliveryProvider } from "./in-app-reminder-delivery-provider.js";
 export { TimezoneReminderDueEvaluator } from "./reminder-due-evaluator.js";
-export { ReminderScheduler } from "./reminder-scheduler.js";
+export { DEFAULT_PENDING_FAILURE_AFTER_MS, ReminderScheduler } from "./reminder-scheduler.js";
 export type { ReminderSchedulerOptions } from "./reminder-scheduler.js";
 export { ReminderService } from "./reminder-service.js";
 export type { ReminderInput } from "./reminder-service.js";

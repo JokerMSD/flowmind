@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { SessionConflictError } from "@flowmind/agent-core";
 import { JsonCollection } from "./json-collection.js";
 import type {
   AgentRepository,
@@ -8,6 +9,7 @@ import type {
   ReminderOccurrenceRepository,
   ReminderRepository,
   SessionRepository,
+  SessionVersion,
   StoredAgent,
 } from "./types.js";
 import {
@@ -42,7 +44,17 @@ export class JsonSessionRepository implements SessionRepository {
   async findById(id: string): Promise<ChatSession | undefined> {
     return (await this.list()).find((session) => session.id === id);
   }
-  async save(session: ChatSession): Promise<void> { await upsert(this.collection, session); }
+  async save(session: ChatSession, expectedVersion?: SessionVersion | null): Promise<void> {
+    await this.collection.mutate((items) => {
+      const current = items.find((item) => item.id === session.id);
+      if (expectedVersion !== undefined && !hasVersion(current, expectedVersion)) {
+        throw new SessionConflictError(session.id);
+      }
+      const index = items.findIndex((item) => item.id === session.id);
+      if (index < 0) return [...items, session];
+      return items.map((item) => item.id === session.id ? session : item);
+    });
+  }
 }
 
 export class JsonReminderRepository implements ReminderRepository {
@@ -105,4 +117,11 @@ async function upsert<T extends { readonly id: string }>(
     if (index < 0) return [...items, item];
     return items.map((existing) => existing.id === item.id ? item : existing);
   });
+}
+
+function hasVersion(session: ChatSession | undefined, expectedVersion: SessionVersion | null): boolean {
+  if (expectedVersion === null) return session === undefined;
+  if (!session) return false;
+  return session.updatedAt === expectedVersion.updatedAt
+    && session.messages.at(-1)?.id === expectedVersion.lastMessageId;
 }

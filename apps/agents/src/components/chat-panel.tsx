@@ -7,11 +7,13 @@ import type { ChatMessage } from "../types";
 
 export function ChatPanel({
   agentName,
+  connected,
   messages,
   onSend,
   sending,
 }: {
   readonly agentName: string;
+  readonly connected: boolean;
   readonly messages: readonly ChatMessage[];
   readonly onSend: (message: string) => Promise<void>;
   readonly sending: boolean;
@@ -36,7 +38,9 @@ export function ChatPanel({
     <section className="chat-panel">
       <header className="panel-heading">
         <div><span className="eyebrow">Conversa</span><h2>{agentName}</h2></div>
-        <span className="status-dot">Online local</span>
+        <span className={`status-dot ${connected ? "online" : "offline"}`}>
+          {connected ? "Online local" : "Offline local"}
+        </span>
       </header>
       <div className="message-list" aria-live="polite">
         {messages.length === 0 ? (

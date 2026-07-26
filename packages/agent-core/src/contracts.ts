@@ -5,6 +5,7 @@ import type {
   Reminder,
   ReminderOccurrence,
   ReminderOccurrenceStatus,
+  SessionVersion,
 } from "./models.js";
 
 export interface AgentRepository {
@@ -15,7 +16,7 @@ export interface AgentRepository {
 
 export interface SessionRepository {
   findById(id: string): Promise<ChatSession | undefined>;
-  save(session: ChatSession): Promise<void>;
+  save(session: ChatSession, expectedVersion?: SessionVersion | null): Promise<void>;
 }
 
 export interface ReminderRepository {

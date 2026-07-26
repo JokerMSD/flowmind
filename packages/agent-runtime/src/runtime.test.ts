@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { csnfAgent } from "@flowmind/agent-core";
+import { SessionConflictError, csnfAgent } from "@flowmind/agent-core";
 import type {
   AgentDefinition, AgentRepository, ChatSession, Reminder, ReminderOccurrence, ReminderOccurrenceFilters,
-  ReminderOccurrenceRepository, ReminderRepository, SessionRepository,
+  ReminderDueEvaluator, ReminderOccurrenceRepository, ReminderRepository, SessionRepository, SessionVersion,
 } from "@flowmind/agent-core";
 import { AgentRuntime } from "./agent-runtime.js";
 import { FixedClock } from "./clock.js";
@@ -24,7 +24,13 @@ class MemoryAgents implements AgentRepository {
 class MemorySessions implements SessionRepository {
   public readonly values = new Map<string, ChatSession>();
   public async findById(id: string): Promise<ChatSession | undefined> { return this.values.get(id); }
-  public async save(session: ChatSession): Promise<void> { this.values.set(session.id, session); }
+  public async save(session: ChatSession, expectedVersion?: SessionVersion | null): Promise<void> {
+    const current = this.values.get(session.id);
+    if (expectedVersion !== undefined && !hasVersion(current, expectedVersion)) {
+      throw new SessionConflictError(session.id);
+    }
+    this.values.set(session.id, session);
+  }
 }
 
 class MemoryReminders implements ReminderRepository {
@@ -47,6 +53,12 @@ class MemoryOccurrences implements ReminderOccurrenceRepository {
 }
 
 class SequenceIds { private current = 0; public next(): string { this.current += 1; return `id-${this.current}`; } }
+
+function hasVersion(session: ChatSession | undefined, expectedVersion: SessionVersion | null): boolean {
+  if (expectedVersion === null) return session === undefined;
+  return session?.updatedAt === expectedVersion.updatedAt
+    && session.messages.at(-1)?.id === expectedVersion.lastMessageId;
+}
 
 test("chat persists a new session and continues it through the registry", async () => {
   const sessions = new MemorySessions();
@@ -99,7 +111,7 @@ test("reminders are normalized, delivered once, and ignored when disabled", asyn
 });
 
 test("scheduler recovers only occurrences inside the configured window", async () => {
-  const clock = new FixedClock(new Date("2026-07-27T11:10:00Z"));
+  const clock = new FixedClock(new Date("2026-07-27T11:00:00Z"));
   const reminders = new MemoryReminders();
   const occurrences = new MemoryOccurrences();
   const service = new ReminderService(new MemoryAgents([csnfAgent]), reminders, clock, new SequenceIds());
@@ -117,6 +129,7 @@ test("scheduler recovers only occurrences inside the configured window", async (
     enabled: true,
     schedule: { daysOfWeek: [1], times: ["07:59"], timezone: "America/Sao_Paulo" },
   });
+  clock.set(new Date("2026-07-27T11:10:00Z"));
   const scheduler = new ReminderScheduler(
     reminders,
     occurrences,
@@ -130,4 +143,182 @@ test("scheduler recovers only occurrences inside the configured window", async (
   const delivered = await occurrences.list();
   assert.equal(delivered.length, 1);
   assert.equal(delivered[0]?.status, "delivered");
+});
+
+test("recovery never emits an occurrence scheduled before reminder creation", () => {
+  const evaluator = new TimezoneReminderDueEvaluator();
+  const reminder: Reminder = {
+    id: "late-reminder",
+    agentId: "csnf",
+    type: "shape-photo",
+    message: "Foto",
+    schedule: { daysOfWeek: [1], times: ["08:05"], timezone: "America/Sao_Paulo" },
+    enabled: true,
+    createdAt: "2026-07-27T11:05:01.000Z",
+    updatedAt: "2026-07-27T11:05:01.000Z",
+  };
+  assert.equal(evaluator.evaluate(reminder, new Date("2026-07-27T11:05:59.000Z")), null);
+  assert.ok(evaluator.evaluate(
+    { ...reminder, createdAt: "2026-07-27T11:05:00.000Z" },
+    new Date("2026-07-27T11:05:59.000Z"),
+  ));
+});
+
+test("scheduler marks stale pending as failed and never retries it", async () => {
+  const clock = new FixedClock(new Date("2026-07-27T11:10:00Z"));
+  const reminders = new MemoryReminders();
+  const occurrences = new MemoryOccurrences();
+  reminders.values.set("reminder-1", {
+    id: "reminder-1",
+    agentId: "csnf",
+    type: "shape-photo",
+    message: "Foto",
+    schedule: { daysOfWeek: [1], times: ["08:05"], timezone: "America/Sao_Paulo" },
+    enabled: true,
+    createdAt: "2026-07-27T10:00:00.000Z",
+    updatedAt: "2026-07-27T10:00:00.000Z",
+  });
+  occurrences.values.set("occurrence-1", {
+    id: "occurrence-1",
+    reminderId: "reminder-1",
+    scheduledFor: "2026-07-27T08:05:00-03:00",
+    detectedAt: "2026-07-27T10:59:59.000Z",
+    status: "pending",
+  });
+  let deliveries = 0;
+  const scheduler = new ReminderScheduler(
+    reminders,
+    occurrences,
+    new TimezoneReminderDueEvaluator(),
+    { id: "spy", async deliver() { deliveries += 1; } },
+    clock,
+    { intervalMs: 60_000, recoveryWindowMs: 10 * 60_000, pendingFailureAfterMs: 10 * 60_000 },
+  );
+  await scheduler.start();
+  await scheduler.stop();
+  await scheduler.runOnce();
+  assert.equal(occurrences.values.get("occurrence-1")?.status, "failed");
+  assert.equal(deliveries, 0);
+});
+
+test("scheduler isolates evaluator errors and continues with later reminders", async () => {
+  const clock = new FixedClock(new Date("2026-07-27T11:00:00Z"));
+  const reminders = new MemoryReminders();
+  const occurrences = new MemoryOccurrences();
+  const base: Reminder = {
+    id: "broken",
+    agentId: "csnf",
+    type: "shape-photo",
+    message: "Foto",
+    schedule: { daysOfWeek: [1], times: ["08:00"], timezone: "America/Sao_Paulo" },
+    enabled: true,
+    createdAt: "2026-07-27T10:00:00.000Z",
+    updatedAt: "2026-07-27T10:00:00.000Z",
+  };
+  reminders.values.set(base.id, base);
+  reminders.values.set("healthy", { ...base, id: "healthy" });
+  const timezoneEvaluator = new TimezoneReminderDueEvaluator();
+  const evaluator: ReminderDueEvaluator = {
+    evaluate(reminder, now) {
+      if (reminder.id === "broken") throw new Error("legacy reminder is invalid");
+      return timezoneEvaluator.evaluate(reminder, now);
+    },
+  };
+  const scheduler = new ReminderScheduler(
+    reminders,
+    occurrences,
+    evaluator,
+    new InAppReminderDeliveryProvider(occurrences, clock),
+    clock,
+    { recoveryWindowMs: 0 },
+  );
+  await scheduler.runOnce();
+  assert.equal((await occurrences.list()).length, 1);
+  assert.equal((await occurrences.list())[0]?.reminderId, "healthy");
+  assert.equal((await occurrences.list())[0]?.status, "delivered");
+});
+
+test("scheduler supports multiple times for one reminder", async () => {
+  const clock = new FixedClock(new Date("2026-07-27T10:00:00Z"));
+  const reminders = new MemoryReminders();
+  const occurrences = new MemoryOccurrences();
+  const service = new ReminderService(new MemoryAgents([csnfAgent]), reminders, clock, new SequenceIds());
+  await service.create({
+    agentId: "csnf",
+    type: "shape-photo",
+    message: "Foto",
+    enabled: true,
+    schedule: { daysOfWeek: [1], times: ["08:00", "09:00"], timezone: "America/Sao_Paulo" },
+  });
+  const scheduler = new ReminderScheduler(
+    reminders,
+    occurrences,
+    new TimezoneReminderDueEvaluator(),
+    new InAppReminderDeliveryProvider(occurrences, clock),
+    clock,
+    { recoveryWindowMs: 0 },
+  );
+  clock.set(new Date("2026-07-27T11:00:00Z"));
+  await scheduler.runOnce();
+  clock.set(new Date("2026-07-27T12:00:00Z"));
+  await scheduler.runOnce();
+  assert.equal((await occurrences.list()).length, 2);
+});
+
+test("scheduler delivers multiple reminders due at the same time", async () => {
+  const clock = new FixedClock(new Date("2026-07-27T10:00:00Z"));
+  const reminders = new MemoryReminders();
+  const occurrences = new MemoryOccurrences();
+  const service = new ReminderService(new MemoryAgents([csnfAgent]), reminders, clock, new SequenceIds());
+  for (const message of ["Frente", "Costas"]) {
+    await service.create({
+      agentId: "csnf",
+      type: "shape-photo",
+      message,
+      enabled: true,
+      schedule: { daysOfWeek: [1], times: ["08:00"], timezone: "America/Sao_Paulo" },
+    });
+  }
+  clock.set(new Date("2026-07-27T11:00:00Z"));
+  const scheduler = new ReminderScheduler(
+    reminders,
+    occurrences,
+    new TimezoneReminderDueEvaluator(),
+    new InAppReminderDeliveryProvider(occurrences, clock),
+    clock,
+    { recoveryWindowMs: 0 },
+  );
+  await scheduler.runOnce();
+  assert.equal((await occurrences.list()).length, 2);
+  assert.ok((await occurrences.list()).every((occurrence) => occurrence.status === "delivered"));
+});
+
+test("concurrent chats reload and merge a session conflict by updatedAt and last message id", async () => {
+  const sessions = new MemorySessions();
+  await sessions.save({
+    id: "shared",
+    agentId: "csnf",
+    createdAt: "2026-07-26T12:00:00.000Z",
+    updatedAt: "2026-07-26T12:00:00.000Z",
+    messages: [],
+  });
+  const registry = new ConversationProviderRegistry();
+  registry.register(new FakeConversationProvider());
+  const runtime = new AgentRuntime(
+    new MemoryAgents([csnfAgent]),
+    sessions,
+    registry,
+    new FixedClock(new Date("2026-07-26T12:01:00.000Z")),
+    new SequenceIds(),
+  );
+  const results = await Promise.allSettled([
+    runtime.chat({ agentId: "csnf", sessionId: "shared", message: "primeira" }),
+    runtime.chat({ agentId: "csnf", sessionId: "shared", message: "segunda" }),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 2);
+  assert.equal(sessions.values.get("shared")?.messages.length, 4);
+  assert.deepEqual(
+    sessions.values.get("shared")?.messages.filter((message) => message.role === "user").map((message) => message.content).sort(),
+    ["primeira", "segunda"],
+  );
 });

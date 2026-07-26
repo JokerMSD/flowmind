@@ -16,10 +16,13 @@
 .agents-content { min-width: 0; }
 .topbar { align-items: center; border-bottom: 1px solid var(--line); display: flex; height: 68px; justify-content: space-between; padding: 0 24px; }
 .topbar > div { display: grid; gap: 4px; }
-.api-status, .status-dot { color: var(--accent); font-size: 11px; font-weight: 750; }
-.api-status::before, .status-dot::before { background: var(--accent); border-radius: 50%; content: ""; display: inline-block; height: 6px; margin-right: 7px; width: 6px; }
+.api-status, .status-dot { color: var(--muted); font-size: 11px; font-weight: 750; }
+.api-status::before, .status-dot::before { background: var(--muted); border-radius: 50%; content: ""; display: inline-block; height: 6px; margin-right: 7px; width: 6px; }
+.api-status.online, .status-dot.online { color: var(--accent); }.api-status.online::before, .status-dot.online::before { background: var(--accent); }
+.api-status.offline, .status-dot.offline { color: var(--danger); }.api-status.offline::before, .status-dot.offline::before { background: var(--danger); }
 .feedback { border-bottom: 1px solid var(--line); font-size: 13px; padding: 10px 24px; }
 .feedback.success { background: #10221d; color: #8be4c7; }.feedback.error { background: #281318; color: #fda4af; }
+.polling-error { color: var(--muted); font-size: 11px; margin: 8px 24px 0; }
 .agents-grid { display: grid; gap: 16px; grid-template-columns: minmax(360px, 1fr) minmax(420px, .9fr); padding: 16px; }
 .chat-panel, .reminder-panel, .occurrences { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .panel-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; min-height: 68px; padding: 14px 16px; }

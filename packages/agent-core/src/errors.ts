@@ -33,10 +33,18 @@ export class InvalidTimeError extends AgentCoreError {
   public constructor(value: string) { super(`Invalid reminder time: ${value}`, "INVALID_TIME"); }
 }
 
+export class InvalidTimezoneError extends AgentCoreError {
+  public constructor(value: string) { super(`Invalid reminder timezone: ${value}`, "INVALID_TIMEZONE"); }
+}
+
 export class InvalidPersistenceError extends AgentCoreError {
   public constructor(message: string) { super(message, "INVALID_PERSISTENCE"); }
 }
 
 export class ProviderNotRegisteredError extends AgentCoreError {
   public constructor(providerId: string) { super(`Provider is not registered: ${providerId}`, "PROVIDER_NOT_REGISTERED"); }
+}
+
+export class SessionConflictError extends AgentCoreError {
+  public constructor(sessionId: string) { super(`Session was changed concurrently: ${sessionId}`, "SESSION_CONFLICT"); }
 }

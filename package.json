@@ -5,9 +5,9 @@
   "type": "module",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "build": "turbo build",
+    "build": "node scripts/run-turbo.mjs build",
     "check": "corepack pnpm typecheck:all && corepack pnpm --filter @flowmind/api build && corepack pnpm --filter @flowmind/editor build",
-    "dev": "turbo dev",
+    "dev": "node scripts/run-turbo.mjs dev",
     "dev:api": "corepack pnpm --filter @flowmind/api dev",
     "dev:agents": "corepack pnpm --filter @flowmind/agents dev",
     "dev:editor": "corepack pnpm --filter @flowmind/editor dev",
@@ -15,8 +15,8 @@
     "smoke:execute": "node scripts/smoke-execute.mjs",
     "setup": "corepack pnpm install",
     "start": "corepack pnpm --parallel --filter @flowmind/api --filter @flowmind/editor --filter @flowmind/agents dev",
-    "test": "corepack pnpm --filter @flowmind/agent-core test && corepack pnpm --filter @flowmind/agent-runtime test && corepack pnpm --filter @flowmind/agent-memory test && corepack pnpm --filter @flowmind/api test",
-    "typecheck": "turbo typecheck",
+    "test": "corepack pnpm --filter @flowmind/agent-core test && corepack pnpm --filter @flowmind/agent-runtime test && corepack pnpm --filter @flowmind/agent-memory test && corepack pnpm --filter @flowmind/api test && corepack pnpm --filter @flowmind/agents test",
+    "typecheck": "node scripts/run-turbo.mjs typecheck",
     "typecheck:all": "corepack pnpm -r typecheck",
     "format": "prettier --check ."
   },

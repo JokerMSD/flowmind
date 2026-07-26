@@ -1,10 +1,10 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { DefaultNodeRegistry, Engine } from "@flowmind/engine";
 import { registerCoreNodes } from "@flowmind/node-core";
-import type { Workflow } from "@flowmind/schema";
 import { createAgentContainer } from "./agents/container.js";
 import { registerAgentErrorHandler } from "./agents/error-handler.js";
 import { registerAgentRoutes } from "./agents/routes.js";
+import { parseWorkflow } from "./workflow-validation.js";
 
 export function createServer(environment: NodeJS.ProcessEnv = process.env): FastifyInstance {
   const server = Fastify({
@@ -27,12 +27,12 @@ export function createServer(environment: NodeJS.ProcessEnv = process.env): Fast
     status: "ok",
   }));
 
-  server.post<{ Body: Workflow }>("/api/execute", async (request) => {
+  server.post<{ Body: unknown }>("/api/execute", async (request) => {
     const registry = new DefaultNodeRegistry();
     registerCoreNodes(registry);
 
     const engine = new Engine({ registry });
-    return engine.execute(request.body);
+    return engine.execute(parseWorkflow(request.body));
   });
 
   registerAgentRoutes(server, agents);

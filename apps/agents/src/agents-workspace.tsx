@@ -40,12 +40,21 @@ export function AgentsWorkspace(): React.ReactElement {
       <div className="agents-content">
         <header className="topbar">
           <div><span className="eyebrow">Primeiro agente nativo</span><strong>{agent.name}</strong></div>
-          <span className="api-status">API conectada</span>
+          <span className={`api-status ${workspace.apiConnected ? "online" : "offline"}`}>
+            {workspace.apiConnected ? "API conectada" : "API indisponivel"}
+          </span>
         </header>
         {workspace.feedback ? <div className={`feedback ${workspace.feedback.kind}`}>{workspace.feedback.message}</div> : null}
+        {workspace.occurrencePollingError ? <p className="polling-error" role="status">Ocorrencias nao atualizadas. Nova tentativa no proximo ciclo.</p> : null}
         <div className="agents-grid">
           <div id="conversation">
-            <ChatPanel agentName={agent.name} messages={workspace.messages} onSend={workspace.sendMessage} sending={workspace.sending} />
+            <ChatPanel
+              agentName={agent.name}
+              connected={workspace.apiConnected && agent.enabled}
+              messages={workspace.messages}
+              onSend={workspace.sendMessage}
+              sending={workspace.sending}
+            />
           </div>
           <div className="automation-column" id="reminders">
             <ReminderPanel

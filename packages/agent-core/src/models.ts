@@ -32,6 +32,11 @@ export interface ChatSession {
   readonly messages: readonly ChatMessage[];
 }
 
+export interface SessionVersion {
+  readonly updatedAt: string;
+  readonly lastMessageId?: string;
+}
+
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface ReminderSchedule {

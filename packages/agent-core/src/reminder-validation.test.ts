@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InvalidPayloadError, InvalidTimeError } from "./errors.js";
+import { InvalidPayloadError, InvalidTimeError, InvalidTimezoneError } from "./errors.js";
 import { normalizeReminderMessage, normalizeReminderSchedule } from "./reminder-validation.js";
 
 test("normalizes reminder schedule into deterministic values", () => {
@@ -15,4 +15,11 @@ test("rejects missing reminder schedule fields and invalid time", () => {
   assert.throws(() => normalizeReminderSchedule({ daysOfWeek: [1], times: [], timezone: "UTC" }), InvalidPayloadError);
   assert.throws(() => normalizeReminderSchedule({ daysOfWeek: [1], times: ["8:00"], timezone: "UTC" }), InvalidTimeError);
   assert.throws(() => normalizeReminderMessage("   "), InvalidPayloadError);
+});
+
+test("rejects invalid IANA timezone before scheduling", () => {
+  assert.throws(
+    () => normalizeReminderSchedule({ daysOfWeek: [1], times: ["08:00"], timezone: "Mars/Olympus_Mons" }),
+    InvalidTimezoneError,
+  );
 });

@@ -1,4 +1,4 @@
-import { InvalidPayloadError, InvalidTimeError } from "./errors.js";
+import { InvalidPayloadError, InvalidTimeError, InvalidTimezoneError } from "./errors.js";
 import type { ReminderSchedule, Weekday } from "./models.js";
 
 const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -12,6 +12,11 @@ export interface ReminderScheduleInput {
 export function normalizeReminderSchedule(input: ReminderScheduleInput): ReminderSchedule {
   const timezone = input.timezone.trim();
   if (!timezone) throw new InvalidPayloadError("Reminder timezone is required");
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
+  } catch {
+    throw new InvalidTimezoneError(timezone);
+  }
   if (input.daysOfWeek.length === 0) throw new InvalidPayloadError("At least one weekday is required");
   if (input.times.length === 0) throw new InvalidPayloadError("At least one reminder time is required");
   const days = [...new Set(input.daysOfWeek)].sort((left, right) => left - right);

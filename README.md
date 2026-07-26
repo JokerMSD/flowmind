@@ -288,7 +288,39 @@ docs/assets/execute-workflow.gif
 docs/assets/inspector-text-node.png
 ```
 
-## Limitacoes Atuais
+## Por Que Alpha 0.2 Usa JSON
+
+O armazenamento JSON mantém a execução local simples, inspecionável e sem
+serviços externos durante a validação dos contratos de agentes, sessões,
+lembretes e ocorrências. Ele é adequado para desenvolvimento e demonstrações em
+um único processo, mas não é tratado como banco de dados de produção.
+
+Uma migração futura para SQLite deve preservar as interfaces de repositório de
+`@flowmind/agent-core` e substituir apenas os adapters de `agent-memory`. A
+migração deverá criar tabelas para agentes, sessões, mensagens, lembretes e
+ocorrências, usar transações para operações compostas, índices para consultas do
+scheduler e uma restrição única para `reminderId + scheduledFor`. Os dados JSON
+existentes poderão ser importados por uma ferramenta versionada, sem alterar o
+runtime ou as rotas HTTP.
+
+## Limitacoes Conhecidas
+
+- o armazenamento JSON suporta somente uma instancia do processo;
+- filesystems efemeros podem perder todos os dados locais em reinicios ou
+  redeploys;
+- o scheduler e local e nao coordena execucao entre instancias;
+- nao existe retentativa automatica de entrega;
+- ocorrencias `pending` ha 10 minutos ou mais sao convertidas para `failed`
+  durante a recuperacao, sem nova tentativa de entrega;
+- nao existe suporte oficial ou garantia de disparo para transicoes de horario
+  de verao;
+- SQLite e a migracao planejada para persistencia local transacional;
+
+Sessões usam controle otimista por `updatedAt` e pelo ID da ultima mensagem. Em
+um conflito local simples, o runtime recarrega a versão persistida, combina as
+mensagens ainda ausentes e tenta salvar uma vez sobre a versão mais recente.
+Isso reduz sobrescritas entre abas no mesmo processo, mas não substitui
+transações nem coordenação distribuída.
 
 - apenas fluxo sequencial;
 - sem loops;

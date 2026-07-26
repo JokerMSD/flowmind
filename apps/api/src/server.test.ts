@@ -32,6 +32,41 @@ test("agent chat persists a session and validates empty messages", async () => {
   });
 });
 
+test("agent routes reject invalid client input before reaching the domain", async () => {
+  await withServer(async (server) => {
+    const cases = [
+      { method: "GET", url: "/agents/%20" },
+      { method: "GET", url: "/sessions/%20" },
+      { method: "POST", url: "/chat", payload: [] },
+      { method: "GET", url: "/reminders?agentId=%20" },
+      { method: "GET", url: "/reminders/%20" },
+      { method: "PATCH", url: "/reminders/example/status", payload: { enabled: "false" } },
+      { method: "GET", url: "/reminder-occurrences?status=unknown" },
+      { method: "GET", url: "/reminder-occurrences?after=not-a-date" },
+      { method: "GET", url: "/reminder-occurrences?agentId=%20" },
+    ] as const;
+
+    for (const request of cases) {
+      const response = await server.inject(request);
+      assert.ok(response.statusCode === 400 || response.statusCode === 422, `${request.method} ${request.url}`);
+    }
+
+    const malformedJson = await server.inject({
+      method: "POST", url: "/chat", payload: "{", headers: { "content-type": "application/json" },
+    });
+    assert.equal(malformedJson.statusCode, 400);
+  });
+});
+
+test("workflow execution rejects invalid payloads as client errors", async () => {
+  await withServer(async (server) => {
+    for (const payload of [{}, { id: "flow", name: "Flow", version: "1", nodes: [], edges: [] }]) {
+      const response = await server.inject({ method: "POST", url: "/api/execute", payload });
+      assert.ok(response.statusCode === 400 || response.statusCode === 422);
+    }
+  });
+});
+
 test("reminder API creates, normalizes, updates status, and deletes", async () => {
   await withServer(async (server) => {
     const payload = {
@@ -65,6 +100,27 @@ test("reminder API creates, normalizes, updates status, and deletes", async () =
     assert.deepEqual(removed.json(), { deleted: true });
     const missing = await server.inject({ method: "GET", url: `/reminders/${id}` });
     assert.equal(missing.statusCode, 404);
+  });
+});
+
+test("reminder API rejects invalid payloads and timezones", async () => {
+  await withServer(async (server) => {
+    const invalidPayload = await server.inject({
+      method: "POST",
+      url: "/reminders",
+      payload: { agentId: "csnf", type: "shape-photo", message: "Foto", enabled: true, schedule: [] },
+    });
+    assert.equal(invalidPayload.statusCode, 400);
+
+    const invalidTimezone = await server.inject({
+      method: "POST",
+      url: "/reminders",
+      payload: {
+        agentId: "csnf", type: "shape-photo", message: "Foto", enabled: true,
+        schedule: { daysOfWeek: [1], times: ["08:00"], timezone: "Invalid/Timezone" },
+      },
+    });
+    assert.equal(invalidTimezone.statusCode, 400);
   });
 });
 
