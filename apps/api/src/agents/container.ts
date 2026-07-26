@@ -13,8 +13,10 @@ import {
   ConversationProviderRegistry,
   FakeConversationProvider,
   InAppReminderDeliveryProvider,
+  ReminderDeliveryProviderRegistry,
   ReminderScheduler,
   ReminderService,
+  RoutingReminderDeliveryProvider,
   SystemClock,
   TimezoneReminderDueEvaluator,
 } from "@flowmind/agent-runtime";
@@ -32,7 +34,9 @@ export function createAgentContainer(environment: NodeJS.ProcessEnv = process.en
 
   const runtime = new AgentRuntime(agents, sessions, providers, clock, identifiers);
   const reminderService = new ReminderService(agents, reminders, clock, identifiers);
-  const delivery = new InAppReminderDeliveryProvider(occurrences, clock);
+  const inAppDelivery = new InAppReminderDeliveryProvider(occurrences, clock);
+  const reminderDeliveries = new ReminderDeliveryProviderRegistry();
+  const delivery = new RoutingReminderDeliveryProvider(inAppDelivery, reminderDeliveries);
   const scheduler = new ReminderScheduler(
     reminders,
     occurrences,
@@ -41,7 +45,8 @@ export function createAgentContainer(environment: NodeJS.ProcessEnv = process.en
     clock,
     {
       intervalMs: readPositiveInteger(environment.FLOWMIND_SCHEDULER_INTERVAL_MS, 30_000),
-      recoveryWindowMs: readPositiveInteger(environment.FLOWMIND_REMINDER_RECOVERY_MINUTES, 10) * 60_000,
+      recoveryWindowMs:
+        readPositiveInteger(environment.FLOWMIND_REMINDER_RECOVERY_MINUTES, 10) * 60_000,
     },
   );
 
@@ -52,6 +57,7 @@ export function createAgentContainer(environment: NodeJS.ProcessEnv = process.en
       await scheduler.start();
     },
     occurrences,
+    reminderDeliveries,
     reminders,
     reminderService,
     runtime,
