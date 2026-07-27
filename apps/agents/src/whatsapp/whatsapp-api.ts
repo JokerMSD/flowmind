@@ -63,9 +63,11 @@ function conversationsFrom(payload: unknown): Conversation[] {
     return {
       id: String(row.id ?? row.conversationId),
       name: String(row.name ?? row.contactName ?? row.phone ?? "Contato"),
+      type: row.type === "group" ? "group" : "private",
       unread: Number(row.unread ?? row.unreadCount ?? 0),
       mode: asMode(row.automationMode ?? row.mode),
       ...(typeof row.phone === "string" ? { phone: row.phone } : {}),
+      ...(typeof row.avatarUrl === "string" ? { avatarUrl: row.avatarUrl } : {}),
       ...(typeof row.preview === "string" ? { preview: row.preview } : {}),
       ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
     };

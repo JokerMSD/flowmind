@@ -267,14 +267,17 @@
   overflow: auto;
 }
 .wa-list > button {
+  align-items: center;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
   color: var(--text);
   cursor: pointer;
   display: grid;
-  gap: 4px;
-  padding: 13px 9px;
+  gap: 11px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-height: 68px;
+  padding: 10px 9px;
   position: relative;
   text-align: left;
   width: 100%;
@@ -286,8 +289,41 @@
 .wa-list > button.selected {
   box-shadow: inset 3px 0 var(--accent);
 }
+.wa-avatar {
+  align-items: center;
+  background: #27343a;
+  border: 1px solid #ffffff0f;
+  border-radius: 50%;
+  color: #d6e8e2;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 750;
+  height: 42px;
+  justify-content: center;
+  overflow: hidden;
+  width: 42px;
+}
+.wa-avatar.large {
+  height: 46px;
+  width: 46px;
+}
+.wa-avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+.wa-conversation-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 28px;
+}
 .wa-list strong {
+  overflow: hidden;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .wa-list small {
   color: var(--muted);
@@ -315,7 +351,7 @@
   padding: 2px 6px;
   position: absolute;
   right: 8px;
-  top: 12px;
+  top: 11px;
 }
 .wa-chat {
   display: grid;
@@ -327,7 +363,29 @@
   justify-content: space-between;
   padding: 15px 17px;
 }
+.wa-chat-identity {
+  align-items: center;
+  display: flex;
+  gap: 11px;
+  min-width: 0;
+}
+.wa-chat-identity > div {
+  min-width: 0;
+}
+.wa-chat-identity h2,
+.wa-chat-identity p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wa-messages {
+  background-color: #0b1213;
+  background-image:
+    linear-gradient(#0b1213eb, #0b1213eb),
+    radial-gradient(circle at 1px 1px, #7d91891c 1px, transparent 0);
+  background-size:
+    auto,
+    22px 22px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -335,7 +393,8 @@
   padding: 20px;
 }
 .wa-message {
-  border-radius: 12px;
+  border-radius: 7px;
+  box-shadow: 0 1px 1px #0005;
   max-width: 76%;
   padding: 10px 12px;
 }
@@ -353,11 +412,11 @@
 }
 .wa-message.incoming {
   align-self: flex-start;
-  background: var(--panel-raised);
+  background: #202c33;
 }
 .wa-message.outgoing {
   align-self: flex-end;
-  background: #15352d;
+  background: #075e54;
 }
 .wa-compose {
   border-top: 1px solid var(--line);

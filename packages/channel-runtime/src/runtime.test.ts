@@ -323,6 +323,7 @@ async function seedConversation(
     connectionId: "connection-1",
     externalConversationId: "5511888888888",
     type: "private",
+    normalizedPhone: "5511888888888",
     agentId: "csnf",
     automationMode,
     unreadCount: 0,
@@ -404,6 +405,7 @@ test("processor creates a complete private conversation and processes the extern
     connectionId: "connection-1",
     externalConversationId: "5511888888888",
     type: "private",
+    normalizedPhone: "5511888888888",
     agentId: "csnf",
     sessionId: "agent-session-1",
     automationMode: "enabled",
@@ -467,6 +469,7 @@ test("inbox updates existing conversations while automation remains disabled", a
     connectionId: "connection-1",
     externalConversationId: "5511888888888",
     type: "private",
+    normalizedPhone: "5511888888888",
     agentId: "csnf",
     automationMode: "disabled",
     unreadCount: 3,
@@ -480,6 +483,22 @@ test("inbox updates existing conversations while automation remains disabled", a
   assert.equal(context.messages.values.size, 1);
   assert.equal(context.agents.requests.length, 0);
   assert.equal(context.provider.sent.length, 0);
+});
+
+test("inbox persists the provider display name and avatar", async () => {
+  const context = fixture(createDefaultChannelSettings("csnf"));
+
+  await context.processor.process(
+    inbound({
+      displayName: "Cliente Exemplo",
+      avatarUrl: "https://example.com/avatar.jpg",
+    }),
+  );
+
+  const conversation = [...context.conversations.values.values()][0];
+  assert.equal(conversation?.displayName, "Cliente Exemplo");
+  assert.equal(conversation?.normalizedPhone, "5511888888888");
+  assert.equal(conversation?.metadata.avatarUrl, "https://example.com/avatar.jpg");
 });
 
 test("pauseAll and every non-enabled authorization mode prevent automatic replies", async () => {

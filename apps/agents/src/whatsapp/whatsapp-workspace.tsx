@@ -49,6 +49,30 @@ function readableTime(value?: string): string | null {
     : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function Avatar({
+  conversation,
+  size = "medium",
+}: {
+  conversation: Conversation;
+  size?: "medium" | "large";
+}) {
+  const fallback = conversation.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return (
+    <span className={`wa-avatar ${size}`}>
+      {conversation.avatarUrl ? (
+        <img src={conversation.avatarUrl} alt="" referrerPolicy="no-referrer" />
+      ) : (
+        fallback || "#"
+      )}
+    </span>
+  );
+}
+
 export function WhatsAppWorkspace(): React.ReactElement {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
@@ -361,9 +385,12 @@ export function WhatsAppWorkspace(): React.ReactElement {
                 key={item.id}
                 onClick={() => setSelected(item)}
               >
-                <strong>{item.name}</strong>
-                <small>{item.preview ?? item.phone ?? "Sem mensagens"}</small>
-                <em className={`wa-mode ${item.mode}`}>{modeLabel[item.mode]}</em>
+                <Avatar conversation={item} />
+                <span className="wa-conversation-copy">
+                  <strong>{item.name}</strong>
+                  <small>{item.preview ?? item.phone ?? "Sem mensagens"}</small>
+                  <em className={`wa-mode ${item.mode}`}>{modeLabel[item.mode]}</em>
+                </span>
                 {item.unread ? <b>{item.unread}</b> : null}
               </button>
             ))}
@@ -376,9 +403,16 @@ export function WhatsAppWorkspace(): React.ReactElement {
           {selected ? (
             <>
               <header>
-                <div>
-                  <h2>{selected.name}</h2>
-                  <p>{selected.phone ?? "Conversa WhatsApp"}</p>
+                <div className="wa-chat-identity">
+                  <Avatar conversation={selected} size="large" />
+                  <div>
+                    <h2>{selected.name}</h2>
+                    <p>
+                      {selected.type === "group"
+                        ? "Grupo"
+                        : (selected.phone ?? "Conversa WhatsApp")}
+                    </p>
+                  </div>
                 </div>
                 <div className="wa-actions">
                   <select

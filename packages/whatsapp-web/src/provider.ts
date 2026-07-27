@@ -12,6 +12,7 @@ import type {
   ProviderConnection,
   SendResult,
 } from "@flowmind/channel-core";
+import type { ConversationType } from "@flowmind/channel-core";
 import { AuthStateRepository } from "./auth-state-repository.js";
 import type { WhatsAppSocketFactory } from "./baileys-socket.js";
 import { InvalidWhatsAppConnectionError, WhatsAppConnectionNotFoundError } from "./errors.js";
@@ -122,6 +123,19 @@ export class WhatsAppWebProvider implements ChannelProvider {
 
   public getSnapshot(connectionId: string): WhatsAppConnectionSnapshot | undefined {
     return this.managers.get(connectionId)?.getSnapshot();
+  }
+
+  public async resolveConversationIdentity(
+    connectionId: string,
+    externalId: string,
+    conversationType: ConversationType,
+    displayName?: string,
+  ): Promise<{ readonly displayName?: string; readonly avatarUrl?: string }> {
+    return this.requireManager(connectionId).resolveConversationIdentity(
+      externalId,
+      conversationType,
+      displayName,
+    );
   }
 
   public onIdle(connectionId: string): Promise<void> {

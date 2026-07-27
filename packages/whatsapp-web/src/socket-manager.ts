@@ -63,6 +63,11 @@ interface SocketBinding {
   readonly onMessagesUpsert: (event: MessagesUpsert) => void;
 }
 
+interface ConversationIdentity {
+  readonly displayName?: string;
+  readonly avatarUrl?: string;
+}
+
 function defaultDelay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -116,6 +121,7 @@ export class WhatsAppSocketManager {
   private reconnectAttempts = 0;
   private generation = 0;
   private eventChain: Promise<void> = Promise.resolve();
+  private readonly identityCache = new Map<string, Promise<ConversationIdentity>>();
 
   public readonly connectionId: string;
   public readonly authState: AuthStateRepository;
@@ -392,14 +398,69 @@ export class WhatsAppSocketManager {
   private async handleMessagesUpsert(event: MessagesUpsert): Promise<void> {
     if (event.type !== "notify" || !this.listener) return;
     for (const raw of event.messages) {
-      const message: InboundMessage | undefined = normalizeInboundMessage(this.connectionId, raw);
-      if (!message) continue;
+      const normalized = normalizeInboundMessage(this.connectionId, raw);
+      if (!normalized) continue;
+      const identity = await this.resolveConversationIdentity(
+        normalized.conversationAddress.externalId,
+        normalized.conversationType,
+        normalized.displayName,
+      );
+      const message: InboundMessage = {
+        ...normalized,
+        ...(identity.displayName === undefined ? {} : { displayName: identity.displayName }),
+        ...(identity.avatarUrl === undefined ? {} : { avatarUrl: identity.avatarUrl }),
+      };
       try {
         await this.listener.onMessage(message);
       } catch {
         // Consumer failures are isolated by the channel runtime.
       }
     }
+  }
+
+  public async resolveConversationIdentity(
+    externalId: string,
+    conversationType: "private" | "group",
+    displayName?: string,
+  ): Promise<ConversationIdentity> {
+    const jid = toWhatsAppJid(externalId);
+    if (!this.socket) {
+      return displayName === undefined ? {} : { displayName };
+    }
+    const cached = this.identityCache.get(jid);
+    if (cached) {
+      const identity = await cached;
+      return {
+        ...identity,
+        ...(conversationType === "private" && displayName ? { displayName } : {}),
+      };
+    }
+
+    const pending = this.fetchConversationIdentity(jid, conversationType, displayName);
+    this.identityCache.set(jid, pending);
+    return pending;
+  }
+
+  private async fetchConversationIdentity(
+    jid: string,
+    conversationType: "private" | "group",
+    displayName?: string,
+  ): Promise<ConversationIdentity> {
+    const [groupName, avatarUrl] = await Promise.all([
+      conversationType === "group" && this.socket?.groupMetadata
+        ? this.socket
+            .groupMetadata(jid)
+            .then((metadata) => metadata.subject?.trim() || undefined)
+            .catch(() => undefined)
+        : Promise.resolve(displayName),
+      this.socket?.profilePictureUrl
+        ? this.socket.profilePictureUrl(jid, "preview").catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
+    return {
+      ...(groupName === undefined ? {} : { displayName: groupName }),
+      ...(avatarUrl === undefined ? {} : { avatarUrl }),
+    };
   }
 
   private async emitStatus(status: ChannelConnectionStatus, error?: string): Promise<void> {

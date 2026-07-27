@@ -26,7 +26,9 @@ export interface WhatsAppConnection {
 export interface Conversation {
   id: string;
   name: string;
+  type: "private" | "group";
   phone?: string;
+  avatarUrl?: string;
   preview?: string;
   updatedAt?: string;
   unread?: number;

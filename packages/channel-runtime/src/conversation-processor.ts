@@ -203,13 +203,20 @@ export class ConversationProcessor {
         inbound.conversationAddress.externalId,
       );
     const now = this.dependencies.clock.now().toISOString();
+    const normalizedPhone = this.normalizedPhone(inbound);
     if (existing) {
       const updated: ChannelConversation = {
         ...existing,
+        ...(inbound.displayName === undefined ? {} : { displayName: inbound.displayName }),
+        ...(normalizedPhone === undefined ? {} : { normalizedPhone }),
         unreadCount: existing.unreadCount + 1,
         lastMessagePreview: inbound.content.slice(0, 120),
         lastMessageAt: inbound.occurredAt,
         lastInboundAt: inbound.occurredAt,
+        metadata: {
+          ...existing.metadata,
+          ...(inbound.avatarUrl === undefined ? {} : { avatarUrl: inbound.avatarUrl }),
+        },
         updatedAt: now,
       };
       await this.dependencies.conversations.save(updated);
@@ -221,6 +228,8 @@ export class ConversationProcessor {
       connectionId: inbound.connectionId,
       externalConversationId: inbound.conversationAddress.externalId,
       type: inbound.conversationType,
+      ...(inbound.displayName === undefined ? {} : { displayName: inbound.displayName }),
+      ...(normalizedPhone === undefined ? {} : { normalizedPhone }),
       agentId: defaultAgentId,
       automationMode:
         inbound.conversationType === "group"
@@ -230,12 +239,21 @@ export class ConversationProcessor {
       lastMessagePreview: inbound.content.slice(0, 120),
       lastMessageAt: inbound.occurredAt,
       lastInboundAt: inbound.occurredAt,
-      metadata: {},
+      metadata: {
+        ...(inbound.avatarUrl === undefined ? {} : { avatarUrl: inbound.avatarUrl }),
+      },
       createdAt: now,
       updatedAt: now,
     };
     await this.dependencies.conversations.save(created);
     return created;
+  }
+
+  private normalizedPhone(inbound: InboundMessage): string | undefined {
+    const externalId = inbound.conversationAddress.externalId;
+    return inbound.conversationType === "private" && /^\d+$/.test(externalId)
+      ? externalId
+      : undefined;
   }
 
   private inboundMessage(

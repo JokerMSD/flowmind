@@ -1,4 +1,4 @@
-import type { ChannelConnection, ChannelProvider } from "@flowmind/channel-core";
+import type { ChannelConnection, ChannelProvider, ConversationType } from "@flowmind/channel-core";
 import type {
   WhatsAppConnectionSnapshot,
   WhatsAppWebProviderOptions,
@@ -7,6 +7,12 @@ import type {
 export interface WhatsAppProviderPort extends ChannelProvider {
   logout(connectionId: string): Promise<void>;
   getSnapshot(connectionId: string): WhatsAppConnectionSnapshot | undefined;
+  resolveConversationIdentity?(
+    connectionId: string,
+    externalId: string,
+    conversationType: ConversationType,
+    displayName?: string,
+  ): Promise<{ readonly displayName?: string; readonly avatarUrl?: string }>;
 }
 
 export type WhatsAppProviderFactory = (options: WhatsAppWebProviderOptions) => WhatsAppProviderPort;

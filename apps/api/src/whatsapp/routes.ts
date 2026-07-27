@@ -124,9 +124,10 @@ function registerPrefix(
         ...(query.search === undefined ? {} : { search: query.search }),
         order: "desc",
       });
-      return conversations
-        .filter((conversation) => modeMatches(conversation.automationMode, query.mode))
-        .map(conversationPayload);
+      const filtered = conversations.filter((conversation) =>
+        modeMatches(conversation.automationMode, query.mode),
+      );
+      return (await container.hydrateConversationIdentities(filtered)).map(conversationPayload);
     }),
   );
 
@@ -247,6 +248,10 @@ function settingsPayload(settings: ChannelSettings): Record<string, unknown> {
 }
 
 function conversationPayload(conversation: ChannelConversation): Record<string, unknown> {
+  const avatarUrl =
+    typeof conversation.metadata.avatarUrl === "string"
+      ? conversation.metadata.avatarUrl
+      : undefined;
   return {
     ...conversation,
     conversationId: conversation.id,
@@ -256,6 +261,7 @@ function conversationPayload(conversation: ChannelConversation): Record<string, 
       conversation.externalConversationId,
     contactName: conversation.displayName,
     phone: conversation.normalizedPhone ?? conversation.externalConversationId,
+    ...(avatarUrl === undefined ? {} : { avatarUrl }),
     preview: conversation.lastMessagePreview,
     unread: conversation.unreadCount,
     mode: toUiMode(conversation.automationMode),

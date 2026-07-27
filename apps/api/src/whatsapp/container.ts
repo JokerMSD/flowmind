@@ -156,6 +156,42 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     return updated;
   }
 
+  async function hydrateConversationIdentities(
+    conversations: readonly ChannelConversation[],
+  ): Promise<readonly ChannelConversation[]> {
+    const resolveIdentity = provider.resolveConversationIdentity?.bind(provider);
+    if (!resolveIdentity) return conversations;
+    return Promise.all(
+      conversations.map(async (conversation) => {
+        if (conversation.displayName && typeof conversation.metadata.avatarUrl === "string") {
+          return conversation;
+        }
+        try {
+          const identity = await resolveIdentity(
+            conversation.connectionId,
+            conversation.externalConversationId,
+            conversation.type,
+            conversation.displayName,
+          );
+          if (!identity.displayName && !identity.avatarUrl) return conversation;
+          const updated: ChannelConversation = {
+            ...conversation,
+            ...(identity.displayName === undefined ? {} : { displayName: identity.displayName }),
+            metadata: {
+              ...conversation.metadata,
+              ...(identity.avatarUrl === undefined ? {} : { avatarUrl: identity.avatarUrl }),
+            },
+            updatedAt: now().toISOString(),
+          };
+          await memory.conversations.save(updated);
+          return updated;
+        } catch {
+          return conversation;
+        }
+      }),
+    );
+  }
+
   async function sendManualMessage(input: ManualMessageInput): Promise<ChannelMessage> {
     const conversation = await requireConversation(memory, input.conversationId);
     if (conversation.type !== "private" || conversation.automationMode === "blocked") {
@@ -227,6 +263,7 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     agentRuntimePort,
     featureEnabled,
     initialize,
+    hydrateConversationIdentities,
     manager,
     memory,
     processor,
