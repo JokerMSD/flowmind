@@ -435,11 +435,51 @@ test("safe settings disable private automation without agent or send side effect
   const context = fixture(createDefaultChannelSettings("csnf"));
   const result = await context.processor.process(inbound());
 
-  assert.deepEqual(result, { status: "ignored", reason: "channel-disabled" });
-  assert.equal(context.conversations.values.size, 0);
+  assert.deepEqual(result, {
+    status: "ignored",
+    reason: "channel-disabled",
+    conversationId: "id-2",
+  });
+  assert.equal(context.conversations.values.size, 1);
+  assert.equal(context.messages.values.size, 1);
   assert.equal(context.agents.requests.length, 0);
   assert.equal(context.provider.sent.length, 0);
   assert.equal([...context.externalMessages.values.values()][0]?.status, "ignored");
+});
+
+test("inbox updates existing conversations while automation remains disabled", async () => {
+  const context = fixture(createDefaultChannelSettings("csnf"));
+  await seedConversation(context.conversations, "disabled", {
+    unreadCount: 2,
+    lastMessagePreview: "Anterior",
+  });
+
+  const result = await context.processor.process(inbound({ content: "Nova mensagem" }));
+
+  assert.deepEqual(result, {
+    status: "ignored",
+    reason: "channel-disabled",
+    conversationId: "conversation-existing",
+  });
+  assert.deepEqual(context.conversations.values.get("conversation-existing"), {
+    id: "conversation-existing",
+    channelId: "whatsapp",
+    connectionId: "connection-1",
+    externalConversationId: "5511888888888",
+    type: "private",
+    agentId: "csnf",
+    automationMode: "disabled",
+    unreadCount: 3,
+    lastMessagePreview: "Nova mensagem",
+    lastMessageAt: BASE_TIME,
+    lastInboundAt: BASE_TIME,
+    metadata: {},
+    createdAt: BASE_TIME,
+    updatedAt: BASE_TIME,
+  });
+  assert.equal(context.messages.values.size, 1);
+  assert.equal(context.agents.requests.length, 0);
+  assert.equal(context.provider.sent.length, 0);
 });
 
 test("pauseAll and every non-enabled authorization mode prevent automatic replies", async () => {
@@ -447,6 +487,7 @@ test("pauseAll and every non-enabled authorization mode prevent automatic replie
   assert.deepEqual(await paused.processor.process(inbound()), {
     status: "ignored",
     reason: "all-paused",
+    conversationId: "id-2",
   });
 
   for (const mode of ["disabled", "paused", "manual", "blocked"] as const) {

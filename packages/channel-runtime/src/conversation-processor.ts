@@ -77,10 +77,6 @@ export class ConversationProcessor {
     };
     if (!(await this.dependencies.externalMessages.claim(external))) return ignored("duplicate");
 
-    const settings = await this.dependencies.settings.get();
-    if (!settings.enabled) return this.ignore(external, "channel-disabled");
-    if (settings.pauseAll) return this.ignore(external, "all-paused");
-
     const connection = await this.dependencies.connections.findById(inbound.connectionId);
     if (!connection) return this.ignore(external, "connection-not-found");
     if (!connection.enabled) return this.ignore(external, "connection-disabled");
@@ -92,11 +88,9 @@ export class ConversationProcessor {
     ) {
       return this.ignore(external, "unsupported");
     }
+    const settings = await this.dependencies.settings.get();
     if (inbound.fromSelf && !settings.processMessagesFromSelf) {
       return this.ignore(external, "from-self");
-    }
-    if (!this.rateLimiter.allow("global", settings.rateLimit.global, now)) {
-      return this.ignore(external, "global-rate-limited");
     }
 
     const conversation = await this.resolveConversation(
@@ -104,21 +98,28 @@ export class ConversationProcessor {
       settings.defaultAgentId,
       settings.defaultConversationMode,
     );
-    if (conversation.type === "group" && !settings.allowGroups) {
-      return this.ignore(external, "groups-not-allowed", conversation.id);
-    }
-    if (conversation.automationMode !== "enabled") {
-      return this.ignore(external, "conversation-mode", conversation.id);
-    }
-
     const inboundMessage = this.inboundMessage(
       external.messageId,
       conversation.id,
       inbound,
       now.toISOString(),
     );
+    await this.dependencies.messages.save(inboundMessage);
+
+    if (!settings.enabled) {
+      return this.ignore(external, "channel-disabled", conversation.id);
+    }
+    if (settings.pauseAll) return this.ignore(external, "all-paused", conversation.id);
+    if (conversation.type === "group" && !settings.allowGroups) {
+      return this.ignore(external, "groups-not-allowed", conversation.id);
+    }
+    if (conversation.automationMode !== "enabled") {
+      return this.ignore(external, "conversation-mode", conversation.id);
+    }
+    if (!this.rateLimiter.allow("global", settings.rateLimit.global, now)) {
+      return this.ignore(external, "global-rate-limited", conversation.id);
+    }
     if (!this.rateLimiter.allow(`auto:${conversation.id}`, settings.rateLimit.auto, now)) {
-      await this.dependencies.messages.save({ ...inboundMessage, status: "ignored" });
       await this.dependencies.conversations.save({
         ...conversation,
         automationMode: "paused",
@@ -127,7 +128,6 @@ export class ConversationProcessor {
       });
       return this.ignore(external, "auto-rate-limited", conversation.id);
     }
-    await this.dependencies.messages.save(inboundMessage);
     await this.saveExternal(external, "processing");
 
     let outbound: ChannelMessage | undefined;
@@ -202,8 +202,19 @@ export class ConversationProcessor {
         inbound.connectionId,
         inbound.conversationAddress.externalId,
       );
-    if (existing) return existing;
     const now = this.dependencies.clock.now().toISOString();
+    if (existing) {
+      const updated: ChannelConversation = {
+        ...existing,
+        unreadCount: existing.unreadCount + 1,
+        lastMessagePreview: inbound.content.slice(0, 120),
+        lastMessageAt: inbound.occurredAt,
+        lastInboundAt: inbound.occurredAt,
+        updatedAt: now,
+      };
+      await this.dependencies.conversations.save(updated);
+      return updated;
+    }
     const created: ChannelConversation = {
       id: this.dependencies.identifiers.next(),
       channelId: inbound.conversationAddress.channelId,
