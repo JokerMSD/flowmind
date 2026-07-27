@@ -96,7 +96,7 @@ export class JsonChannelConversationRepository implements ChannelConversationRep
   }
 
   public async list(options?: ConversationListOptions): Promise<readonly ChannelConversation[]> {
-    return sort(
+    return sortConversations(
       (await this.collection.read()).filter(
         (item) =>
           (options?.channelId === undefined || item.channelId === options.channelId) &&
@@ -322,6 +322,18 @@ function sort<T extends { readonly createdAt: string }>(
   return [...items].sort(
     (left, right) => direction * left.createdAt.localeCompare(right.createdAt),
   );
+}
+
+function sortConversations(
+  items: readonly ChannelConversation[],
+  order: ListOptions["order"],
+): readonly ChannelConversation[] {
+  const direction = order === "desc" ? -1 : 1;
+  return [...items].sort((left, right) => {
+    const leftDate = left.lastMessageAt ?? left.createdAt;
+    const rightDate = right.lastMessageAt ?? right.createdAt;
+    return direction * leftDate.localeCompare(rightDate);
+  });
 }
 
 function matches(search: string | undefined, ...values: readonly string[]): boolean {

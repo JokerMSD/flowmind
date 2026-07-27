@@ -104,6 +104,27 @@ test("isola conversas por connectionId e deduplica no mesmo processo", async (t)
   assert.equal(await externalMessages.claim(external("connection-2", "provider-1")), true);
 });
 
+test("ordena conversas pela mensagem mais recente", async (t) => {
+  const path = await storage();
+  t.after(() => rm(path, { recursive: true, force: true }));
+  const conversations = new JsonChannelConversationRepository(path);
+  await conversations.save({
+    ...conversation("created-first", "connection-1", "5511000000001"),
+    createdAt: "2026-07-20T12:00:00.000Z",
+    lastMessageAt: "2026-07-26T12:00:00.000Z",
+  });
+  await conversations.save({
+    ...conversation("created-last", "connection-1", "5511000000002"),
+    createdAt: "2026-07-25T12:00:00.000Z",
+    lastMessageAt: "2026-07-25T12:00:00.000Z",
+  });
+
+  assert.deepEqual(
+    (await conversations.list({ order: "desc" })).map((item) => item.id),
+    ["created-first", "created-last"],
+  );
+});
+
 test("cria e persiste settings padrao desabilitado", async (t) => {
   const path = await storage();
   t.after(() => rm(path, { recursive: true, force: true }));
