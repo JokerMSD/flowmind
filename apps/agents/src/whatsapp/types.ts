@@ -18,6 +18,7 @@ export interface WhatsAppConnection {
   status: ConnectionStatus;
   qr?: string | null;
   qrExpiresAt?: string | null;
+  error?: string;
   globalEnabled: boolean;
   paused: boolean;
 }

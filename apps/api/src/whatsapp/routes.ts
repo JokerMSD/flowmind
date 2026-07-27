@@ -218,6 +218,7 @@ async function statusPayload(
     qrCode: qr,
     ...(snapshot?.qr?.expiresAt === undefined ? {} : { qrExpiresAt: snapshot.qr.expiresAt }),
     ...(snapshot?.address === undefined ? {} : { address: snapshot.address }),
+    ...(snapshot?.error === undefined ? {} : { error: snapshot.error }),
   };
 }
 

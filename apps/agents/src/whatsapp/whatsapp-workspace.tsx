@@ -323,6 +323,11 @@ export function WhatsAppWorkspace(): React.ReactElement {
             Aguardando um novo QR code. A tela sera atualizada automaticamente.
           </p>
         ) : null}
+        {connection.status === "error" && connection.error ? (
+          <p className="wa-connection-error" role="alert">
+            {connection.error}
+          </p>
+        ) : null}
       </section>
       <section className="wa-workspace">
         <aside className="wa-conversations">

@@ -49,6 +49,7 @@ function connectionFrom(payload: unknown): WhatsAppConnection {
     status: (value.status ?? "disconnected") as ConnectionStatus,
     qr: typeof (value.qr ?? value.qrCode) === "string" ? String(value.qr ?? value.qrCode) : null,
     qrExpiresAt: typeof value.qrExpiresAt === "string" ? value.qrExpiresAt : null,
+    ...(typeof value.error === "string" ? { error: value.error } : {}),
     globalEnabled: Boolean(value.globalEnabled ?? value.enabled),
     paused: Boolean(value.paused ?? value.pauseAll),
   };
