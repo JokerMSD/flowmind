@@ -111,11 +111,17 @@ test("reminder API creates, normalizes, updates status, and deletes", async () =
         timezone: "America/Sao_Paulo",
       },
       enabled: true,
+      target: {
+        channelId: "whatsapp",
+        connectionId: "whatsapp-personal",
+        conversationId: "conversation-1",
+      },
     };
     const created = await server.inject({ method: "POST", url: "/reminders", payload });
     assert.equal(created.statusCode, 201);
     assert.deepEqual(created.json().schedule.daysOfWeek, [1, 5]);
     assert.deepEqual(created.json().schedule.times, ["08:00", "20:00"]);
+    assert.deepEqual(created.json().target, payload.target);
     const id = created.json().id as string;
 
     const paused = await server.inject({
@@ -540,6 +546,8 @@ test("WhatsApp reminder delivery resolves target/provider and persists delivered
     await occurrences.save(occurrence);
     await delivery.deliver(occurrence, reminder);
 
+    assert.equal(context.provider.sent.length, 2);
+    assert.match(context.provider.sent[0]?.content ?? "", /Eu sou o CSNF/i);
     assert.equal(context.provider.sent.at(-1)?.content, reminder.message);
     const saved = await occurrences.findByReminderAndScheduledFor(
       reminder.id,

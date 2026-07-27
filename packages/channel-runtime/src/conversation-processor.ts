@@ -15,6 +15,7 @@ import type {
 } from "@flowmind/channel-core";
 import { defaultAutomationModeForConversation } from "@flowmind/channel-core";
 import type { AgentRuntimePort, Clock, IdentifierGenerator } from "./ports.js";
+import { ensureCsnfIntroduction } from "./conversation-introduction.js";
 import { SlidingWindowRateLimiter } from "./rate-limiter.js";
 import type { RateLimiter } from "./rate-limiter.js";
 
@@ -166,14 +167,22 @@ export class ConversationProcessor {
         content: chat.message.content,
         replyToProviderMessageId: inbound.providerMessageId,
       };
-      const sent = await this.dependencies.providers.resolve(connection.providerId).send(request);
+      const provider = this.dependencies.providers.resolve(connection.providerId);
+      const introducedConversation = await ensureCsnfIntroduction({
+        connection,
+        conversation,
+        conversations: this.dependencies.conversations,
+        provider,
+        now: () => this.dependencies.clock.now(),
+      });
+      const sent = await provider.send(request);
       await this.dependencies.messages.save({
         ...outbound,
         status: "sent",
         providerMessageId: sent.providerMessageId,
       });
       await this.dependencies.conversations.save({
-        ...conversation,
+        ...introducedConversation,
         sessionId: chat.session.id,
         lastOutboundAt: this.dependencies.clock.now().toISOString(),
         updatedAt: this.dependencies.clock.now().toISOString(),

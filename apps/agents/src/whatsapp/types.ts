@@ -44,6 +44,23 @@ export interface WhatsAppContact {
   conversationId?: string;
 }
 
+export interface WhatsAppReminder {
+  id: string;
+  agentId: string;
+  message: string;
+  enabled: boolean;
+  schedule: {
+    daysOfWeek: readonly number[];
+    times: readonly string[];
+    timezone: string;
+  };
+  target?: {
+    channelId: string;
+    connectionId: string;
+    conversationId: string;
+  };
+}
+
 export interface ConversationMessage {
   id: string;
   body: string;

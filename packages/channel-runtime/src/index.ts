@@ -1,5 +1,6 @@
 export { BoundedQueue } from "./bounded-queue.js";
 export type { BoundedQueueOptions } from "./bounded-queue.js";
+export { CSNF_INTRODUCTION, ensureCsnfIntroduction } from "./conversation-introduction.js";
 export { ChannelRuntime } from "./channel-runtime.js";
 export type { ChannelRuntimeOptions } from "./channel-runtime.js";
 export { ConversationProcessor } from "./conversation-processor.js";

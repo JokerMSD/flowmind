@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { whatsAppApi } from "./whatsapp-api";
 import { toQrDataUrl } from "./qrcode";
+import { RemindersDialog } from "./reminders-dialog";
 import type {
   ConnectionStatus,
   Conversation,
@@ -130,6 +131,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [qrImage, setQrImage] = useState<string | null>(null);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const selectedId = useRef<string | null>(null);
   const messagesViewport = useRef<HTMLDivElement | null>(null);
 
@@ -312,17 +314,22 @@ export function WhatsAppWorkspace(): React.ReactElement {
           <span className="wa-kicker">CANAL WHATSAPP</span>
           <h1>Atendimento e automacao</h1>
         </div>
-        <button
-          className="wa-link"
-          onClick={() =>
-            void run(async () => {
-              await whatsAppApi.logoutAdmin();
-              setAuthenticated(false);
-            }, "")
-          }
-        >
-          Sair
-        </button>
+        <div className="wa-header-actions">
+          <button className="wa-link" onClick={() => setRemindersOpen(true)}>
+            Lembretes
+          </button>
+          <button
+            className="wa-link"
+            onClick={() =>
+              void run(async () => {
+                await whatsAppApi.logoutAdmin();
+                setAuthenticated(false);
+              }, "")
+            }
+          >
+            Sair
+          </button>
+        </div>
       </header>
       {notice ? (
         <p className="wa-notice" role="status">
@@ -610,6 +617,14 @@ export function WhatsAppWorkspace(): React.ReactElement {
           )}
         </article>
       </section>
+      {remindersOpen ? (
+        <RemindersDialog
+          connectionId={connection.id}
+          conversations={conversations}
+          {...(selected?.type === "private" ? { initialConversationId: selected.id } : {})}
+          onClose={() => setRemindersOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }

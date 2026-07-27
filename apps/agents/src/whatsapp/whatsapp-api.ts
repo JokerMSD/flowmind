@@ -6,6 +6,7 @@ import type {
   ConversationMode,
   WhatsAppContact,
   WhatsAppConnection,
+  WhatsAppReminder,
 } from "./types";
 
 const apiUrl = process.env.NEXT_PUBLIC_FLOWMIND_API_URL ?? "http://localhost:3001";
@@ -151,5 +152,20 @@ export const whatsAppApi = {
     request<unknown>(`/integrations/whatsapp/conversations/${encodeURIComponent(id)}/messages`, {
       method: "POST",
       body: JSON.stringify({ body }),
+    }),
+  reminders: () => request<WhatsAppReminder[]>("/reminders?agentId=csnf"),
+  createReminder: (input: Omit<WhatsAppReminder, "id">) =>
+    request<WhatsAppReminder>("/reminders", {
+      method: "POST",
+      body: JSON.stringify({ ...input, type: "shape-photo" }),
+    }),
+  setReminderStatus: (id: string, enabled: boolean) =>
+    request<WhatsAppReminder>(`/reminders/${encodeURIComponent(id)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteReminder: (id: string) =>
+    request<{ deleted: true }>(`/reminders/${encodeURIComponent(id)}`, {
+      method: "DELETE",
     }),
 };

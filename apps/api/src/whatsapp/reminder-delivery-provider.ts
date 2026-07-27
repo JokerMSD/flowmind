@@ -11,6 +11,7 @@ import type {
   ChannelProviderRegistry,
   ChannelSettingsRepository,
 } from "@flowmind/channel-core";
+import { ensureCsnfIntroduction } from "@flowmind/channel-runtime";
 
 export interface WhatsAppWebReminderDeliveryProviderDependencies {
   readonly connections: ChannelConnectionRepository;
@@ -63,7 +64,15 @@ export class WhatsAppWebReminderDeliveryProvider implements ReminderDeliveryProv
       throw new Error("WhatsApp conversation is not eligible for reminders.");
     }
 
-    await this.dependencies.providers.resolve(connection.providerId).send({
+    const provider = this.dependencies.providers.resolve(connection.providerId);
+    await ensureCsnfIntroduction({
+      connection,
+      conversation,
+      conversations: this.dependencies.conversations,
+      provider,
+      now: this.now,
+    });
+    await provider.send({
       connectionId: connection.id,
       conversationAddress: {
         channelId: WHATSAPP_CHANNEL_ID,

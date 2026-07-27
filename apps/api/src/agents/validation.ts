@@ -1,4 +1,8 @@
-import { InvalidPayloadError, normalizeReminderMessage, normalizeReminderSchedule } from "@flowmind/agent-core";
+import {
+  InvalidPayloadError,
+  normalizeReminderMessage,
+  normalizeReminderSchedule,
+} from "@flowmind/agent-core";
 import type { ReminderOccurrenceStatus } from "@flowmind/agent-core";
 import type { ReminderInput } from "@flowmind/agent-runtime";
 
@@ -11,7 +15,9 @@ export function parseChatBody(value: unknown): {
   return {
     agentId: requireNonEmptyString(body.agentId, "agentId"),
     message: requireNonEmptyString(body.message, "message"),
-    ...(body.sessionId === undefined ? {} : { sessionId: requireNonEmptyString(body.sessionId, "sessionId") }),
+    ...(body.sessionId === undefined
+      ? {}
+      : { sessionId: requireNonEmptyString(body.sessionId, "sessionId") }),
   };
 }
 
@@ -32,6 +38,16 @@ export function parseReminderBody(value: unknown): ReminderInput {
     message: normalizeReminderMessage(requireNonEmptyString(body.message, "message")),
     enabled: body.enabled,
     schedule: normalizedSchedule,
+    ...(body.target === undefined ? {} : { target: parseReminderTarget(body.target) }),
+  };
+}
+
+function parseReminderTarget(value: unknown): NonNullable<ReminderInput["target"]> {
+  const target = requireRecord(value);
+  return {
+    channelId: requireNonEmptyString(target.channelId, "target.channelId"),
+    connectionId: requireNonEmptyString(target.connectionId, "target.connectionId"),
+    conversationId: requireNonEmptyString(target.conversationId, "target.conversationId"),
   };
 }
 
@@ -58,7 +74,9 @@ export function parseOccurrenceQuery(value: unknown): {
   const status = query.status === undefined ? undefined : requireOccurrenceStatus(query.status);
   const after = query.after === undefined ? undefined : requireIsoTimestamp(query.after, "after");
   return {
-    ...(query.agentId === undefined ? {} : { agentId: requireNonEmptyString(query.agentId, "agentId") }),
+    ...(query.agentId === undefined
+      ? {}
+      : { agentId: requireNonEmptyString(query.agentId, "agentId") }),
     ...(status === undefined ? {} : { status }),
     ...(after === undefined ? {} : { after }),
   };

@@ -22,6 +22,10 @@
   justify-content: space-between;
   margin-bottom: 22px;
 }
+.wa-header-actions {
+  display: flex;
+  gap: 8px;
+}
 .wa-header h1 {
   font-size: clamp(25px, 3vw, 34px);
   letter-spacing: -0.035em;
@@ -41,6 +45,151 @@
   font-size: 13px;
   margin-bottom: 16px;
   padding: 12px 14px;
+}
+.wa-dialog-backdrop {
+  align-items: center;
+  background: #000a;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 100;
+}
+.wa-reminders-dialog {
+  background: #111b21;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px #000a;
+  max-height: min(820px, calc(100dvh - 48px));
+  max-width: 960px;
+  overflow: hidden;
+  width: 100%;
+}
+.wa-reminders-dialog > header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+.wa-reminders-dialog h2,
+.wa-reminders-dialog h3 {
+  margin: 4px 0 0;
+}
+.wa-icon-button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 26px;
+}
+.wa-reminder-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  max-height: calc(100dvh - 150px);
+  overflow: auto;
+}
+.wa-reminder-form,
+.wa-saved-reminders {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+.wa-reminder-form {
+  border-right: 1px solid var(--line);
+}
+.wa-reminder-form label,
+.wa-reminder-form fieldset {
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 7px;
+}
+.wa-reminder-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.wa-reminder-form input,
+.wa-reminder-form textarea {
+  background: #0b141a;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  padding: 10px;
+}
+.wa-reminder-form textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+.wa-weekdays {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(7, 1fr);
+}
+.wa-weekdays button {
+  aspect-ratio: 1;
+  background: #182229;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+}
+.wa-weekdays button.active {
+  background: var(--accent);
+  color: #06130f;
+}
+.wa-recipient-list {
+  border: 1px solid var(--line);
+  max-height: 190px;
+  overflow: auto;
+}
+.wa-recipient-list label {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto 1fr auto;
+  padding: 10px;
+}
+.wa-recipient-list small {
+  color: var(--muted);
+}
+.wa-form-error {
+  color: #fda4af;
+  font-size: 12px;
+  margin: 0;
+}
+.wa-saved-reminders {
+  overflow: auto;
+}
+.wa-saved-reminders article {
+  border-bottom: 1px solid var(--line);
+  padding: 4px 0 14px;
+}
+.wa-saved-reminders article p {
+  color: var(--muted);
+  margin: 6px 0;
+}
+.wa-saved-reminders article div {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+@media (max-width: 760px) {
+  .wa-reminder-layout {
+    grid-template-columns: 1fr;
+  }
+  .wa-reminder-form {
+    border-bottom: 1px solid var(--line);
+    border-right: 0;
+  }
+  .wa-dialog-backdrop {
+    padding: 8px;
+  }
 }
 
 .wa-connection-error {

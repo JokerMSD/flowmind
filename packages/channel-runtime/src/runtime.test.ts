@@ -414,7 +414,7 @@ test("processor creates a complete private conversation and processes the extern
     lastMessageAt: BASE_TIME,
     lastInboundAt: BASE_TIME,
     lastOutboundAt: BASE_TIME,
-    metadata: {},
+    metadata: { csnfIntroducedAt: BASE_TIME },
     createdAt: BASE_TIME,
     updatedAt: BASE_TIME,
   });
@@ -429,7 +429,9 @@ test("processor creates a complete private conversation and processes the extern
       },
     },
   ]);
-  assert.equal(context.provider.sent[0]?.connectionId, "connection-1");
+  assert.equal(context.provider.sent.length, 2);
+  assert.match(context.provider.sent[0]?.content ?? "", /Eu sou o CSNF/i);
+  assert.equal(context.provider.sent[1]?.connectionId, "connection-1");
   assert.deepEqual(context.externalMessages.statusHistory, ["received", "processing", "processed"]);
 });
 
