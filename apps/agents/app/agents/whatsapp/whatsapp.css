@@ -1,7 +1,10 @@
 .wa-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
   margin: 0 auto;
   max-width: 1480px;
-  min-height: 100vh;
+  overflow: hidden;
   padding: 32px;
 }
 .wa-header,
@@ -214,14 +217,16 @@
 }
 .wa-workspace {
   display: grid;
+  flex: 1;
   gap: 16px;
   grid-template-columns: 330px minmax(0, 1fr);
+  min-height: 0;
 }
 .wa-conversations {
   display: grid;
   gap: 10px;
-  max-height: calc(100vh - 260px);
-  min-height: 580px;
+  min-height: 0;
+  overflow: hidden;
   padding: 14px;
 }
 .wa-panel-title {
@@ -292,6 +297,7 @@
   margin: 0;
 }
 .wa-list {
+  min-height: 0;
   overflow: auto;
 }
 .wa-list > button {
@@ -421,9 +427,9 @@
 .wa-chat {
   background: #111b21;
   display: grid;
-  grid-template-rows: auto minmax(350px, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
   overflow: hidden;
-  min-height: 580px;
 }
 .wa-chat > header {
   background: #202c33;
@@ -458,6 +464,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-height: 0;
   overflow: auto;
   padding: 18px clamp(18px, 6vw, 72px) 24px;
   scroll-behavior: smooth;
@@ -626,12 +633,19 @@ textarea:disabled {
   opacity: 0.55;
 }
 @media (max-width: 980px) {
+  .wa-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
   .wa-workspace {
+    flex: none;
     grid-template-columns: 1fr;
   }
   .wa-conversations {
     max-height: 370px;
     min-height: 300px;
+    overflow: hidden;
   }
   .wa-chat {
     min-height: 550px;

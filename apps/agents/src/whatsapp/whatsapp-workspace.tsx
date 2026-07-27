@@ -131,7 +131,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [qrImage, setQrImage] = useState<string | null>(null);
   const selectedId = useRef<string | null>(null);
-  const messagesEnd = useRef<HTMLDivElement | null>(null);
+  const messagesViewport = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     selectedId.current = selected?.id ?? null;
@@ -209,7 +209,8 @@ export function WhatsAppWorkspace(): React.ReactElement {
   }, [connection.qr]);
 
   useEffect(() => {
-    messagesEnd.current?.scrollIntoView({ block: "end" });
+    const viewport = messagesViewport.current;
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [messages]);
 
   const run = async (action: () => Promise<unknown>, success: string) => {
@@ -556,7 +557,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
                   </button>
                 </div>
               </header>
-              <div className="wa-messages">
+              <div className="wa-messages" ref={messagesViewport}>
                 {messages.map((message, index) => {
                   const previous = messages[index - 1];
                   const startsDay =
@@ -588,7 +589,6 @@ export function WhatsAppWorkspace(): React.ReactElement {
                 {!messages.length ? (
                   <p className="wa-empty">Sem mensagens nesta conversa.</p>
                 ) : null}
-                <div ref={messagesEnd} />
               </div>
               <form className="wa-compose" onSubmit={send}>
                 <textarea
