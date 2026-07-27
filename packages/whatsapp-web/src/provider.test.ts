@@ -376,7 +376,26 @@ test("history sync imports only the latest message from each private chat", asyn
       notify: "Maria Silva",
     },
   ]);
+  await provider.onIdle("whatsapp-personal");
   assert.equal(provider.listContacts("whatsapp-personal")[0]?.name, "Maria Silva");
+  socket.ev.emit("messages.upsert", {
+    type: "notify",
+    messages: [
+      {
+        key: { id: "new-message", remoteJid: "123456789@lid" },
+        message: { conversation: "Nova" },
+        messageTimestamp: 300,
+      } as WAMessage,
+    ],
+  });
+  await provider.onIdle("whatsapp-personal");
+  assert.equal(
+    events.messages.length,
+    2,
+    JSON.stringify(provider.getSnapshot("whatsapp-personal")),
+  );
+  assert.equal(events.messages[1]?.displayName, "Maria Silva");
+  assert.equal(events.messages[1]?.conversationAddress.externalId, "5511888888888");
 });
 
 test("reconnects with bounded backoff and resets after an open socket", async (t) => {

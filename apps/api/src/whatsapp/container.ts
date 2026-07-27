@@ -52,6 +52,12 @@ export interface ManualMessageInput {
   readonly content: string;
 }
 
+function hasContactDisplayName(conversation: ChannelConversation): boolean {
+  const name = conversation.displayName?.trim();
+  if (!name || name.endsWith("@lid") || /^\d+$/.test(name)) return false;
+  return name !== conversation.externalConversationId;
+}
+
 export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions) {
   const environment = options.environment ?? process.env;
   const now = options.now ?? (() => new Date());
@@ -163,7 +169,10 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     if (!resolveIdentity) return conversations;
     return Promise.all(
       conversations.map(async (conversation) => {
-        if (conversation.displayName && typeof conversation.metadata.avatarUrl === "string") {
+        if (
+          hasContactDisplayName(conversation) &&
+          typeof conversation.metadata.avatarUrl === "string"
+        ) {
           return conversation;
         }
         try {

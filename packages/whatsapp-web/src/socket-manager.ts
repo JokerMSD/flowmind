@@ -502,6 +502,7 @@ export class WhatsAppSocketManager {
       phone: id,
       ...(avatarUrl === undefined ? {} : { avatarUrl }),
     });
+    this.identityCache.delete(toWhatsAppJid(id));
   }
 
   private async deliverMessage(
@@ -528,17 +529,22 @@ export class WhatsAppSocketManager {
         externalId: senderId,
       },
     };
+    const contact = this.contacts.get(conversationId);
+    const contactName =
+      contact && contact.name !== contact.id && !contact.name.endsWith("@lid")
+        ? contact.name
+        : undefined;
     const identity = await this.resolveConversationIdentity(
       addressed.conversationAddress.externalId,
       addressed.conversationType,
-      historyIdentity.displayName ?? addressed.displayName,
+      contactName ?? historyIdentity.displayName ?? addressed.displayName,
     );
+    const displayName = contactName ?? identity.displayName;
+    const avatarUrl = contact?.avatarUrl ?? historyIdentity.avatarUrl ?? identity.avatarUrl;
     const message: InboundMessage = {
       ...addressed,
-      ...(identity.displayName === undefined ? {} : { displayName: identity.displayName }),
-      ...(historyIdentity.avatarUrl === undefined && identity.avatarUrl === undefined
-        ? {}
-        : { avatarUrl: historyIdentity.avatarUrl ?? identity.avatarUrl }),
+      ...(displayName === undefined ? {} : { displayName }),
+      ...(avatarUrl === undefined ? {} : { avatarUrl }),
     };
     try {
       await this.listener.onMessage(message);
@@ -562,19 +568,37 @@ export class WhatsAppSocketManager {
     displayName?: string,
   ): Promise<ConversationIdentity> {
     const jid = toWhatsAppJid(externalId);
+    const contact = this.contacts.get(normalizeWhatsAppJid(externalId));
+    const contactName =
+      contact && contact.name !== contact.id && !contact.name.endsWith("@lid")
+        ? contact.name
+        : undefined;
+    const resolvedDisplayName =
+      contactName ??
+      (displayName && !displayName.endsWith("@lid") && !/^\d+$/.test(displayName)
+        ? displayName
+        : undefined);
     if (!this.socket) {
-      return displayName === undefined ? {} : { displayName };
+      return resolvedDisplayName === undefined ? {} : { displayName: resolvedDisplayName };
     }
     const cached = this.identityCache.get(jid);
     if (cached) {
       const identity = await cached;
       return {
         ...identity,
-        ...(conversationType === "private" && displayName ? { displayName } : {}),
+        ...(contact?.avatarUrl ? { avatarUrl: contact.avatarUrl } : {}),
+        ...(conversationType === "private" && resolvedDisplayName
+          ? { displayName: resolvedDisplayName }
+          : {}),
       };
     }
 
-    const pending = this.fetchConversationIdentity(jid, conversationType, displayName);
+    const pending = this.fetchConversationIdentity(jid, conversationType, resolvedDisplayName).then(
+      (identity) => ({
+        ...identity,
+        ...(contact?.avatarUrl ? { avatarUrl: contact.avatarUrl } : {}),
+      }),
+    );
     this.identityCache.set(jid, pending);
     return pending;
   }
