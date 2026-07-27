@@ -82,23 +82,19 @@ export class ConversationProcessor {
     if (!connection.enabled) return this.ignore(external, "connection-disabled");
     if (connection.status !== "connected") return this.ignore(external, "connection-not-ready");
     if (
-      inbound.unsupported ||
       inbound.conversationAddress.channelId !== connection.channelId ||
       inbound.senderAddress.channelId !== connection.channelId
     ) {
       return this.ignore(external, "unsupported");
     }
     const settings = await this.dependencies.settings.get();
-    if (inbound.fromSelf && !settings.processMessagesFromSelf) {
-      return this.ignore(external, "from-self");
-    }
 
     const conversation = await this.resolveConversation(
       inbound,
       settings.defaultAgentId,
       settings.defaultConversationMode,
     );
-    const inboundMessage = this.inboundMessage(
+    const inboundMessage = this.recordedMessage(
       external.messageId,
       conversation.id,
       inbound,
@@ -106,6 +102,12 @@ export class ConversationProcessor {
     );
     await this.dependencies.messages.save(inboundMessage);
 
+    if (inbound.unsupported) {
+      return this.ignore(external, "unsupported", conversation.id);
+    }
+    if (inbound.fromSelf && !settings.processMessagesFromSelf) {
+      return this.ignore(external, "from-self", conversation.id);
+    }
     if (!settings.enabled) {
       return this.ignore(external, "channel-disabled", conversation.id);
     }
@@ -209,10 +211,12 @@ export class ConversationProcessor {
         ...existing,
         ...(inbound.displayName === undefined ? {} : { displayName: inbound.displayName }),
         ...(normalizedPhone === undefined ? {} : { normalizedPhone }),
-        unreadCount: existing.unreadCount + 1,
-        lastMessagePreview: inbound.content.slice(0, 120),
+        unreadCount: inbound.fromSelf ? existing.unreadCount : existing.unreadCount + 1,
+        lastMessagePreview: this.messagePreview(inbound),
         lastMessageAt: inbound.occurredAt,
-        lastInboundAt: inbound.occurredAt,
+        ...(inbound.fromSelf
+          ? { lastOutboundAt: inbound.occurredAt }
+          : { lastInboundAt: inbound.occurredAt }),
         metadata: {
           ...existing.metadata,
           ...(inbound.avatarUrl === undefined ? {} : { avatarUrl: inbound.avatarUrl }),
@@ -235,10 +239,12 @@ export class ConversationProcessor {
         inbound.conversationType === "group"
           ? defaultAutomationModeForConversation("group")
           : defaultMode,
-      unreadCount: 1,
-      lastMessagePreview: inbound.content.slice(0, 120),
+      unreadCount: inbound.fromSelf ? 0 : 1,
+      lastMessagePreview: this.messagePreview(inbound),
       lastMessageAt: inbound.occurredAt,
-      lastInboundAt: inbound.occurredAt,
+      ...(inbound.fromSelf
+        ? { lastOutboundAt: inbound.occurredAt }
+        : { lastInboundAt: inbound.occurredAt }),
       metadata: {
         ...(inbound.avatarUrl === undefined ? {} : { avatarUrl: inbound.avatarUrl }),
       },
@@ -256,7 +262,7 @@ export class ConversationProcessor {
       : undefined;
   }
 
-  private inboundMessage(
+  private recordedMessage(
     id: string,
     conversationId: string,
     inbound: InboundMessage,
@@ -266,12 +272,17 @@ export class ConversationProcessor {
       id,
       conversationId,
       connectionId: inbound.connectionId,
-      direction: "inbound",
+      direction: inbound.fromSelf ? "outbound" : "inbound",
       content: inbound.content,
-      status: "received",
+      status: inbound.fromSelf ? "sent" : "received",
       providerMessageId: inbound.providerMessageId,
       createdAt,
     };
+  }
+
+  private messagePreview(inbound: InboundMessage): string {
+    const content = inbound.content.trim();
+    return (content.length > 0 ? content : "[Midia]").slice(0, 120);
   }
 
   private async ignore(

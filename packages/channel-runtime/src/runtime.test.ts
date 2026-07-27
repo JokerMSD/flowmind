@@ -545,12 +545,26 @@ test("fromSelf and unsupported messages are ignored unless explicitly authorized
   const selfContext = fixture();
   const fromSelf = await selfContext.processor.process(inbound({ fromSelf: true }));
   assert.equal(fromSelf.status, "ignored");
-  if (fromSelf.status === "ignored") assert.equal(fromSelf.reason, "from-self");
+  if (fromSelf.status === "ignored") {
+    assert.equal(fromSelf.reason, "from-self");
+    assert.equal(fromSelf.conversationId, "id-2");
+  }
+  assert.equal(selfContext.conversations.values.get("id-2")?.type, "private");
+  assert.equal(selfContext.conversations.values.get("id-2")?.unreadCount, 0);
+  assert.equal(selfContext.messages.values.get("id-1")?.direction, "outbound");
+  assert.equal(selfContext.messages.values.get("id-1")?.status, "sent");
 
   const unsupportedContext = fixture();
-  const unsupported = await unsupportedContext.processor.process(inbound({ unsupported: true }));
+  const unsupported = await unsupportedContext.processor.process(
+    inbound({ content: "", unsupported: true }),
+  );
   assert.equal(unsupported.status, "ignored");
-  if (unsupported.status === "ignored") assert.equal(unsupported.reason, "unsupported");
+  if (unsupported.status === "ignored") {
+    assert.equal(unsupported.reason, "unsupported");
+    assert.equal(unsupported.conversationId, "id-2");
+  }
+  assert.equal(unsupportedContext.conversations.values.get("id-2")?.lastMessagePreview, "[Midia]");
+  assert.equal(unsupportedContext.messages.values.get("id-1")?.direction, "inbound");
 
   const allowedSelfContext = fixture(enabledSettings({ processMessagesFromSelf: true }));
   assert.equal(
