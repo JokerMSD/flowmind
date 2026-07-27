@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "smoke:execute": "node scripts/smoke-execute.mjs",
     "setup": "corepack pnpm install",
-    "start": "corepack pnpm --parallel --filter @flowmind/api --filter @flowmind/editor --filter @flowmind/agents dev",
+    "start": "node scripts/start-local.mjs",
     "test": "corepack pnpm --filter @flowmind/agent-core test && corepack pnpm --filter @flowmind/agent-runtime test && corepack pnpm --filter @flowmind/agent-memory test && corepack pnpm --filter @flowmind/channel-core test && corepack pnpm --filter @flowmind/channel-memory test && corepack pnpm --filter @flowmind/channel-runtime test && corepack pnpm --filter @flowmind/whatsapp-web test && corepack pnpm --filter @flowmind/api test && corepack pnpm --filter @flowmind/agents test",
     "whatsapp:start": "node scripts/whatsapp-start.mjs",
     "whatsapp:verify": "node scripts/whatsapp-verify.mjs",
