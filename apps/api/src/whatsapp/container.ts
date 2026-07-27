@@ -196,6 +196,48 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     );
   }
 
+  async function syncProviderChats(connectionId: string): Promise<void> {
+    const chats = provider.listChats?.(connectionId) ?? [];
+    if (chats.length === 0) return;
+    const [settings, contacts] = await Promise.all([
+      memory.settings.get(),
+      Promise.resolve(provider.listContacts?.(connectionId) ?? []),
+    ]);
+    const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+    await Promise.all(
+      chats.map(async (chat) => {
+        const existing = await memory.conversations.findByConnectionAndExternalConversationId(
+          connectionId,
+          chat.externalId,
+        );
+        if (existing) return;
+        const contact = contactsById.get(chat.externalId);
+        const createdAt = now().toISOString();
+        await memory.conversations.save({
+          id: nextId(),
+          channelId: WHATSAPP_CHANNEL_ID,
+          connectionId,
+          externalConversationId: chat.externalId,
+          type: chat.type,
+          ...(contact?.name === undefined ? {} : { displayName: contact.name }),
+          ...(chat.type === "private" && /^\d+$/.test(chat.externalId)
+            ? { normalizedPhone: chat.externalId }
+            : {}),
+          agentId: settings.defaultAgentId,
+          automationMode: chat.type === "group" ? "blocked" : settings.defaultConversationMode,
+          unreadCount: chat.unreadCount,
+          lastMessageAt: chat.lastActivityAt,
+          metadata: {
+            ...(chat.pinnedAt === undefined ? {} : { pinnedAt: chat.pinnedAt }),
+            ...(contact?.avatarUrl === undefined ? {} : { avatarUrl: contact.avatarUrl }),
+          },
+          createdAt,
+          updatedAt: chat.lastActivityAt,
+        });
+      }),
+    );
+  }
+
   async function sendManualMessage(input: ManualMessageInput): Promise<ChannelMessage> {
     const conversation = await requireConversation(memory, input.conversationId);
     if (conversation.type !== "private" || conversation.automationMode === "blocked") {
@@ -278,6 +320,7 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     runtime,
     sendManualMessage,
     setConversationMode,
+    syncProviderChats,
     start,
     stop,
     updateSettings,

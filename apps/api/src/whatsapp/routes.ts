@@ -119,6 +119,7 @@ function registerPrefix(
   server.get(`${prefix}/conversations`, protectedRoute, async (request, reply) =>
     respond(reply, async () => {
       const query = parseConversationQuery(request.query);
+      await container.syncProviderChats(query.connectionId);
       const conversations = await container.memory.conversations.list({
         connectionId: query.connectionId,
         ...(query.search === undefined ? {} : { search: query.search }),
@@ -133,15 +134,7 @@ function registerPrefix(
       const chats = container.provider.listChats?.(query.connectionId) ?? [];
       const chatOrder = new Map(chats.map((chat, index) => [chat.externalId, index]));
       const chatByExternalId = new Map(chats.map((chat) => [chat.externalId, chat]));
-      const visible =
-        chats.length === 0
-          ? hydrated
-          : hydrated.filter((conversation) =>
-              chatByExternalId.has(
-                conversation.normalizedPhone ?? conversation.externalConversationId,
-              ),
-            );
-      return [...visible]
+      return [...hydrated]
         .sort((left, right) => {
           const leftOrder =
             chatOrder.get(left.normalizedPhone ?? left.externalConversationId) ??

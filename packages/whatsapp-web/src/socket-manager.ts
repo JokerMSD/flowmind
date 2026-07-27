@@ -91,6 +91,7 @@ export interface WhatsAppContact {
 
 export interface WhatsAppChat {
   readonly externalId: string;
+  readonly type: "private" | "group";
   readonly lastActivityAt: string;
   readonly pinnedAt?: number;
   readonly archived: boolean;
@@ -591,6 +592,7 @@ export class WhatsAppSocketManager {
           : undefined;
     this.chats.set(externalId, {
       externalId,
+      type: chat.id.endsWith("@g.us") ? "group" : (previous?.type ?? "private"),
       lastActivityAt:
         timestamp > 0
           ? new Date(timestamp * 1_000).toISOString()
@@ -712,6 +714,7 @@ export class WhatsAppSocketManager {
     if (previous && previous.lastActivityAt > occurredAt) return;
     this.chats.set(externalId, {
       externalId,
+      type: previous?.type ?? (externalId.endsWith("@g.us") ? "group" : "private"),
       lastActivityAt: occurredAt,
       ...(previous?.pinnedAt === undefined ? {} : { pinnedAt: previous.pinnedAt }),
       archived: false,
