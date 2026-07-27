@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
 
+import { loadLocalEnv } from "./load-local-env.mjs";
+
+loadLocalEnv();
+
 const command = process.platform === "win32" ? "corepack.cmd" : "corepack";
 const child = spawn(
   command,
@@ -20,7 +24,9 @@ const child = spawn(
     env: {
       ...process.env,
       NODE_ENV: "development",
-      FLOWMIND_ADMIN_ALLOW_LOCAL_DEV: "true",
+      FLOWMIND_ADMIN_ALLOW_LOCAL_DEV:
+        process.env.FLOWMIND_ADMIN_ALLOW_LOCAL_DEV ??
+        (process.env.FLOWMIND_ADMIN_TOKEN ? "false" : "true"),
       WHATSAPP_WEB_ENABLED: process.env.WHATSAPP_WEB_ENABLED ?? "false",
     },
   },

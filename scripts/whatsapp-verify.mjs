@@ -1,3 +1,7 @@
+import { loadLocalEnv } from "./load-local-env.mjs";
+
+loadLocalEnv();
+
 const checks = [
   ["Node.js 20 ou superior", Number(process.versions.node.split(".")[0]) >= 20],
   ["FLOWMIND_ADMIN_TOKEN definido", Boolean(process.env.FLOWMIND_ADMIN_TOKEN)],

@@ -73,6 +73,12 @@ FLOWMIND_REMINDER_RECOVERY_MINUTES=10
 NEXT_PUBLIC_FLOWMIND_API_URL=http://localhost:3001
 ```
 
+Para desenvolvimento local, copie `.env.example` para `.env` e defina um
+`FLOWMIND_ADMIN_TOKEN` forte. Os comandos `npm run start`,
+`npm run whatsapp:start` e `npm run whatsapp:verify` carregam esse arquivo
+automaticamente. O `.env`, o storage e as credenciais do WhatsApp sao
+ignorados pelo Git.
+
 A API cria automaticamente `agents.json`, `sessions.json`, `reminders.json` e
 `reminder-occurrences.json` no diretorio configurado. Escritas concorrentes sao
 serializadas e publicadas com arquivo temporario seguido de `rename`.
