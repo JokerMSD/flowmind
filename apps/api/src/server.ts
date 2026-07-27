@@ -49,19 +49,6 @@ export function createServer(
       await reply.code(204).send();
     }
   });
-  server.addHook("preValidation", async (request) => {
-    if (request.method !== "POST" || request.url.split("?")[0] !== "/admin/auth/login") {
-      return;
-    }
-    if (typeof request.body !== "object" || request.body === null || Array.isArray(request.body)) {
-      return;
-    }
-    const body = request.body as Record<string, unknown>;
-    if (body.token === undefined && body.password !== undefined) {
-      request.body = { ...body, token: body.password };
-    }
-  });
-
   server.get("/", async () => ({
     name: "FlowMind",
     status: "ok",
@@ -75,10 +62,14 @@ export function createServer(
     return engine.execute(parseWorkflow(request.body));
   });
 
-  const adminAuth = registerAdminAuthRoutes(server, { environment });
-  server.get("/admin/auth/session", async (request) => ({
-    authenticated: adminAuth.isAuthenticated(request),
-  }));
+  const adminAuth = registerAdminAuthRoutes(server, {
+    environment,
+    storagePath: agents.storagePath,
+  });
+  server.get("/admin/auth/session", async (request) => {
+    const account = await adminAuth.authenticate(request);
+    return account ? { authenticated: true, user: account } : { authenticated: false };
+  });
   registerAgentRoutes(server, agents);
   registerWhatsAppRoutes(server, whatsapp, adminAuth);
   registerAgentErrorHandler(server);

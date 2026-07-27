@@ -66,6 +66,12 @@ importers:
       '@flowmind/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
+      '@flowmind/auth-core':
+        specifier: workspace:*
+        version: link:../../packages/auth-core
+      '@flowmind/auth-memory':
+        specifier: workspace:*
+        version: link:../../packages/auth-memory
       '@flowmind/channel-core':
         specifier: workspace:*
         version: link:../../packages/channel-core
@@ -215,6 +221,25 @@ importers:
         specifier: workspace:*
         version: link:../schema
     devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/auth-core:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/auth-memory:
+    dependencies:
+      '@flowmind/auth-core':
+        specifier: workspace:*
+        version: link:../auth-core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

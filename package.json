@@ -5,6 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
+    "admin:create": "corepack pnpm --filter @flowmind/api admin:create",
     "build": "node scripts/run-turbo.mjs build",
     "check": "corepack pnpm typecheck:all && corepack pnpm --filter @flowmind/api build && corepack pnpm --filter @flowmind/editor build",
     "dev": "node scripts/run-turbo.mjs dev",

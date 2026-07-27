@@ -24,9 +24,6 @@ const child = spawn(
     env: {
       ...process.env,
       NODE_ENV: "development",
-      FLOWMIND_ADMIN_ALLOW_LOCAL_DEV:
-        process.env.FLOWMIND_ADMIN_ALLOW_LOCAL_DEV ??
-        (process.env.FLOWMIND_ADMIN_TOKEN ? "false" : "true"),
       WHATSAPP_WEB_ENABLED: process.env.WHATSAPP_WEB_ENABLED ?? "false",
     },
   },

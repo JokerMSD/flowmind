@@ -234,6 +234,8 @@
 .wa-actions select,
 .wa-compose textarea,
 .wa-login input {
+  box-sizing: border-box;
+  width: 100%;
   background: #0b0e13;
   border: 1px solid var(--line);
   border-radius: 8px;

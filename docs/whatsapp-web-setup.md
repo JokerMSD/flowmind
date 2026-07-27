@@ -33,16 +33,16 @@ Premissas do Alpha:
    finais devem seguir o runtime que consumir este contrato):
 
 ```env
-WHATSAPP_ENABLED=false
-WHATSAPP_CONNECTION_ID=default
-WHATSAPP_AUTH_DIR=./data/whatsapp/default
-WHATSAPP_MODE=manual
-WHATSAPP_ADMIN_TOKEN=change-me
-WHATSAPP_LOG_LEVEL=info
+WHATSAPP_WEB_ENABLED=false
+WHATSAPP_WEB_CONNECTION_ID=whatsapp-personal
+WHATSAPP_WEB_AUTH_PATH=./whatsapp-auth
+FLOWMIND_ADMIN_SESSION_TTL_MINUTES=480
 ```
 
-`WHATSAPP_ENABLED` deve continuar `false` ate a validacao administrativa. O
-token nao deve ser exibido no painel, em logs ou em mensagens.
+`WHATSAPP_WEB_ENABLED` deve continuar `false` ate a validacao administrativa.
+Crie o primeiro administrador com `npm run admin:create`. Nao existe cadastro
+publico; senhas, cookies e material de autenticacao do WhatsApp nao devem
+aparecer em logs ou mensagens.
 
 ## Login administrativo e QR
 
@@ -77,7 +77,7 @@ troque credenciais administrativas e investigue os logs.
 Use o start definido pelo projeto e confirme no painel: conexao, ultima
 atividade, erro atual, QR pendente e `connectionId`. O painel deve permitir
 parar/reconectar uma conexao, ver o estado amigavel e iniciar login; nao deve
-exibir tokens ou material bruto de autenticacao.
+exibir hashes, cookies ou material bruto de autenticacao.
 
 Modos do Alpha:
 

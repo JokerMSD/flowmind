@@ -51,7 +51,8 @@ function readableTime(value?: string): string | null {
 
 export function WhatsAppWorkspace(): React.ReactElement {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [connection, setConnection] = useState(emptyConnection);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
@@ -152,9 +153,9 @@ export function WhatsAppWorkspace(): React.ReactElement {
     setBusy(true);
     setNotice(null);
     try {
-      await whatsAppApi.login(token);
-      setToken("");
-      setAuthenticated(true);
+      const session = await whatsAppApi.login(email, password);
+      setPassword("");
+      setAuthenticated(session.authenticated);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Nao foi possivel entrar.");
     } finally {
@@ -188,15 +189,25 @@ export function WhatsAppWorkspace(): React.ReactElement {
         <form onSubmit={login}>
           <span className="wa-kicker">FLOWMIND AGENTS</span>
           <h1>WhatsApp</h1>
-          <p>Use o token administrativo para acessar este canal.</p>
+          <p>Entre com suas credenciais administrativas para acessar este canal.</p>
           <label>
-            Token administrativo
+            Email
+            <input
+              required
+              autoComplete="email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label>
+            Senha
             <input
               required
               autoComplete="current-password"
               type="password"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
             />
           </label>
           {notice ? <small role="status">{notice}</small> : null}
@@ -401,7 +412,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
                     <small>
                       {message.sender ??
                         (message.direction === "outgoing" ? "Voce" : selected.name)}
-                      {readableTime(message.sentAt) ? ` · ${readableTime(message.sentAt)}` : ""}
+                      {readableTime(message.sentAt) ? ` - ${readableTime(message.sentAt)}` : ""}
                     </small>
                   </div>
                 ))}

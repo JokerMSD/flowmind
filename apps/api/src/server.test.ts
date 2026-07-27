@@ -11,6 +11,7 @@ import {
 } from "@flowmind/channel-core";
 import type { Reminder, ReminderOccurrence } from "@flowmind/agent-core";
 import { JsonReminderOccurrenceRepository } from "@flowmind/agent-memory";
+import { JsonAccountRepository } from "@flowmind/auth-memory";
 import type {
   ChannelConnection,
   ChannelConversation,
@@ -24,6 +25,7 @@ import { ChannelProviderRegistry } from "@flowmind/channel-runtime";
 import type { WhatsAppConnectionSnapshot } from "@flowmind/whatsapp-web";
 
 import { createServer } from "./server.js";
+import { createPasswordHasher } from "./admin/auth.js";
 import { WhatsAppWebReminderDeliveryProvider } from "./whatsapp/index.js";
 import type { WhatsAppProviderPort } from "./whatsapp/index.js";
 
@@ -187,7 +189,15 @@ test("admin login routes integrate with the API and protect every WhatsApp alias
       url: "/admin/auth/session",
       headers: { cookie },
     });
-    assert.deepEqual(session.json(), { authenticated: true });
+    assert.deepEqual(session.json(), {
+      authenticated: true,
+      user: {
+        id: "test-admin",
+        name: "Test Admin",
+        email: "admin@flowmind.local",
+        role: "admin",
+      },
+    });
 
     for (const url of protectedUrls) {
       const response = await server.inject({ method: "GET", url, headers: { cookie } });
@@ -536,13 +546,24 @@ async function withServer(
   environmentOverrides: NodeJS.ProcessEnv = {},
 ): Promise<void> {
   const storagePath = await mkdtemp(join(tmpdir(), "flowmind-api-"));
+  const accounts = new JsonAccountRepository(join(storagePath, "auth"));
+  const createdAt = new Date().toISOString();
+  await accounts.save({
+    id: "test-admin",
+    name: "Test Admin",
+    email: "admin@flowmind.local",
+    passwordHash: await createPasswordHasher().hash("test-admin-token"),
+    role: "admin",
+    active: true,
+    createdAt,
+    updatedAt: createdAt,
+  });
   const provider = new FakeWhatsAppProvider();
   const server = createServer(
     {
       FLOWMIND_STORAGE_PATH: storagePath,
       FLOWMIND_SCHEDULER_INTERVAL_MS: "60000",
       FLOWMIND_REMINDER_RECOVERY_MINUTES: "1",
-      FLOWMIND_ADMIN_TOKEN: "test-admin-token",
       WHATSAPP_WEB_ENABLED: "false",
       ...environmentOverrides,
     },
@@ -567,7 +588,7 @@ async function loginCookie(server: ReturnType<typeof createServer>): Promise<str
   const login = await server.inject({
     method: "POST",
     url: "/admin/auth/login",
-    payload: { token: "test-admin-token" },
+    payload: { email: "admin@flowmind.local", password: "test-admin-token" },
   });
   assert.equal(login.statusCode, 200);
   return sessionCookie(login.headers["set-cookie"]);

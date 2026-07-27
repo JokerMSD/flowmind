@@ -1,139 +1,182 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
+
+import type {
+  AccountRepository,
+  AccountSessionRepository,
+  AuthenticatedAccount,
+  PasswordHasher,
+} from "@flowmind/auth-core";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000;
-const COOKIE_NAME = "flowmind_admin_session";
-const SESSION_VERSION = "v1";
+const COOKIE_NAME = "flowmind_account_session";
+const SCRYPT_KEY_LENGTH = 64;
+const scryptAsync = promisify(scrypt);
 
 export interface AdminAuthOptions {
+  readonly accounts: AccountRepository;
+  readonly sessions: AccountSessionRepository;
   readonly environment?: NodeJS.ProcessEnv;
   readonly ttlMs?: number;
   readonly cookieName?: string;
-  readonly now?: () => number;
+  readonly now?: () => Date;
+  readonly passwordHasher?: PasswordHasher;
+}
+
+export interface LoginCredentials {
+  readonly email: string;
+  readonly password: string;
 }
 
 export interface AdminAuth {
   readonly cookieName: string;
-  isAuthenticated(request: FastifyRequest): boolean;
+  authenticate(request: FastifyRequest): Promise<AuthenticatedAccount | undefined>;
   requireAuthentication(request: FastifyRequest, reply: FastifyReply): Promise<void>;
-  login(token: unknown, request: FastifyRequest, reply: FastifyReply): boolean;
-  logout(request: FastifyRequest, reply: FastifyReply): void;
+  login(
+    credentials: LoginCredentials,
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<AuthenticatedAccount | undefined>;
+  logout(request: FastifyRequest, reply: FastifyReply): Promise<void>;
 }
 
-export function createAdminAuth(options: AdminAuthOptions = {}): AdminAuth {
+export function createAdminAuth(options: AdminAuthOptions): AdminAuth {
   const environment = options.environment ?? process.env;
-  const token = environment.FLOWMIND_ADMIN_TOKEN?.trim() || undefined;
-  const localDevelopmentBypass = isLocalDevelopmentBypassEnabled(environment);
   const ttlMs = options.ttlMs ?? parseTtl(environment);
   const cookieName = options.cookieName ?? COOKIE_NAME;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => new Date());
+  const hasher = options.passwordHasher ?? createPasswordHasher();
+  const attempts = new LoginAttemptLimiter(now);
 
-  if (!token && !localDevelopmentBypass) {
-    throw new Error(
-      "FLOWMIND_ADMIN_TOKEN is required unless local development bypass is explicitly enabled.",
-    );
-  }
   if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
-    throw new Error("FLOWMIND_ADMIN_SESSION_TTL_MS must be a positive integer.");
+    throw new Error("FLOWMIND_ADMIN_SESSION_TTL_MINUTES must be a positive integer.");
   }
 
-  const sessionKey = token
-    ? createHmac("sha256", token).update("flowmind-admin-session-v1").digest()
-    : undefined;
-
-  function isAuthenticated(request: FastifyRequest): boolean {
-    if (localDevelopmentBypass) return isLocalRequest(request);
-    const session = readCookie(request, cookieName);
-    return Boolean(session && sessionKey && verifySession(session, sessionKey, now()));
+  async function authenticate(request: FastifyRequest): Promise<AuthenticatedAccount | undefined> {
+    const token = readCookie(request, cookieName);
+    if (!token) return undefined;
+    const current = now();
+    const session = await options.sessions.findByTokenHash(hashToken(token));
+    if (!session || session.expiresAt <= current.toISOString()) return undefined;
+    const account = await options.accounts.findById(session.accountId);
+    return account?.active ? publicAccount(account) : undefined;
   }
 
   async function requireAuthentication(
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    if (isAuthenticated(request)) return;
+    if (await authenticate(request)) return;
     await reply
       .code(401)
       .send({ code: "ADMIN_AUTH_REQUIRED", message: "Autenticacao administrativa necessaria." });
   }
 
-  function login(candidate: unknown, request: FastifyRequest, reply: FastifyReply): boolean {
-    if (localDevelopmentBypass) {
-      return isLocalRequest(request);
+  async function login(
+    credentials: LoginCredentials,
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<AuthenticatedAccount | undefined> {
+    const key = `${request.ip}:${credentials.email}`;
+    if (!attempts.allow(key)) return undefined;
+    const account = await options.accounts.findByEmail(credentials.email);
+    if (!account?.active || !(await hasher.verify(credentials.password, account.passwordHash))) {
+      attempts.recordFailure(key);
+      return undefined;
     }
-    if (!token || !sessionKey || !isTokenValid(candidate, token)) return false;
-
-    const expiresAt = now() + ttlMs;
-    const value = signSession(expiresAt, sessionKey);
-    reply.header("Set-Cookie", serializeCookie(cookieName, value, expiresAt, request));
-    return true;
+    attempts.clear(key);
+    const token = randomBytes(32).toString("base64url");
+    const createdAt = now();
+    const expiresAt = new Date(createdAt.getTime() + ttlMs);
+    await options.sessions.deleteExpired(createdAt.toISOString());
+    await options.sessions.save({
+      id: randomUUID(),
+      accountId: account.id,
+      tokenHash: hashToken(token),
+      createdAt: createdAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    });
+    reply.header("Set-Cookie", serializeCookie(cookieName, token, expiresAt, request));
+    return publicAccount(account);
   }
 
-  function logout(request: FastifyRequest, reply: FastifyReply): void {
-    reply.header("Set-Cookie", serializeCookie(cookieName, "", 0, request));
+  async function logout(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const token = readCookie(request, cookieName);
+    if (token) {
+      const session = await options.sessions.findByTokenHash(hashToken(token));
+      if (session) await options.sessions.delete(session.id);
+    }
+    reply.header("Set-Cookie", serializeCookie(cookieName, "", new Date(0), request));
   }
 
-  return { cookieName, isAuthenticated, requireAuthentication, login, logout };
+  return { cookieName, authenticate, requireAuthentication, login, logout };
+}
+
+export function createPasswordHasher(): PasswordHasher {
+  return {
+    hash: async (password) => {
+      validatePassword(password);
+      const salt = randomBytes(16);
+      const derived = (await scryptAsync(password, salt, SCRYPT_KEY_LENGTH)) as Buffer;
+      return `scrypt$v1$${salt.toString("base64url")}$${derived.toString("base64url")}`;
+    },
+    verify: async (password, encodedHash) => {
+      const [algorithm, version, saltRaw, hashRaw] = encodedHash.split("$");
+      if (algorithm !== "scrypt" || version !== "v1" || !saltRaw || !hashRaw) return false;
+      try {
+        const expected = Buffer.from(hashRaw, "base64url");
+        const actual = (await scryptAsync(
+          password,
+          Buffer.from(saltRaw, "base64url"),
+          expected.length,
+        )) as Buffer;
+        return actual.length === expected.length && timingSafeEqual(actual, expected);
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+export function normalizeEmail(value: string): string {
+  const email = value.trim().toLocaleLowerCase("en-US");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    throw new Error("Informe um e-mail valido.");
+  }
+  return email;
+}
+
+export function validatePassword(password: string): void {
+  if (password.length < 12 || password.length > 128) {
+    throw new Error("A senha deve ter entre 12 e 128 caracteres.");
+  }
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("base64url");
 }
 
 function parseTtl(environment: NodeJS.ProcessEnv): number {
-  const minutes = environment.FLOWMIND_ADMIN_SESSION_TTL_MINUTES;
-  if (minutes !== undefined) {
-    if (!/^\d+$/.test(minutes)) {
-      throw new Error("FLOWMIND_ADMIN_SESSION_TTL_MINUTES must be a positive integer.");
-    }
-    return Number(minutes) * 60_000;
-  }
-  const raw = environment.FLOWMIND_ADMIN_SESSION_TTL_MS ?? environment.FLOWMIND_ADMIN_TTL_MS;
+  const raw = environment.FLOWMIND_ADMIN_SESSION_TTL_MINUTES;
   if (raw === undefined) return DEFAULT_TTL_MS;
-  if (!/^\d+$/.test(raw))
-    throw new Error("FLOWMIND_ADMIN_SESSION_TTL_MS must be a positive integer.");
-  return Number(raw);
-}
-
-function isLocalDevelopmentBypassEnabled(environment: NodeJS.ProcessEnv): boolean {
-  const enabled = environment.FLOWMIND_ADMIN_ALLOW_LOCAL_DEV === "true";
-  if (enabled && environment.NODE_ENV !== "development") {
-    throw new Error("FLOWMIND_ADMIN_ALLOW_LOCAL_DEV is only allowed when NODE_ENV=development.");
+  if (!/^\d+$/.test(raw) || Number(raw) <= 0) {
+    throw new Error("FLOWMIND_ADMIN_SESSION_TTL_MINUTES must be a positive integer.");
   }
-  return enabled;
+  return Number(raw) * 60_000;
 }
 
-function isTokenValid(candidate: unknown, expected: string): boolean {
-  if (typeof candidate !== "string") return false;
-  const received = Buffer.from(candidate);
-  const configured = Buffer.from(expected);
-  return received.length === configured.length && timingSafeEqual(received, configured);
-}
-
-function signSession(expiresAt: number, key: Buffer): string {
-  const nonce = randomBytes(18).toString("base64url");
-  const unsigned = `${SESSION_VERSION}.${expiresAt}.${nonce}`;
-  return `${unsigned}.${createHmac("sha256", key).update(unsigned).digest("base64url")}`;
-}
-
-function verifySession(value: string, key: Buffer, now: number): boolean {
-  const parts = value.split(".");
-  if (parts.length !== 4 || parts[0] !== SESSION_VERSION) return false;
-  const [version, expiresAtRaw, nonce, signature] = parts;
-  if (!version || !expiresAtRaw || !nonce || !signature || !/^\d+$/.test(expiresAtRaw))
-    return false;
-  const expiresAt = Number(expiresAtRaw);
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) return false;
-  const unsigned = `${version}.${expiresAtRaw}.${nonce}`;
-  const expected = createHmac("sha256", key).update(unsigned).digest("base64url");
-  const expectedBuffer = Buffer.from(expected);
-  const signatureBuffer = Buffer.from(signature);
-  return (
-    expectedBuffer.length === signatureBuffer.length &&
-    timingSafeEqual(expectedBuffer, signatureBuffer)
-  );
+function publicAccount(account: {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+  readonly role: "admin" | "operator";
+}): AuthenticatedAccount {
+  return { id: account.id, name: account.name, email: account.email, role: account.role };
 }
 
 function readCookie(request: FastifyRequest, name: string): string | undefined {
-  const cookieHeader = request.headers.cookie;
-  if (!cookieHeader) return undefined;
-  for (const part of cookieHeader.split(";")) {
+  for (const part of request.headers.cookie?.split(";") ?? []) {
     const [key, ...rest] = part.trim().split("=");
     if (key === name) return rest.join("=");
   }
@@ -143,20 +186,41 @@ function readCookie(request: FastifyRequest, name: string): string | undefined {
 function serializeCookie(
   name: string,
   value: string,
-  expiresAt: number,
+  expiresAt: Date,
   request: FastifyRequest,
 ): string {
+  const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
   const attributes = [
     `${name}=${value}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Strict",
-    `Max-Age=${Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))}`,
+    `Max-Age=${maxAge}`,
   ];
   if (request.protocol === "https") attributes.push("Secure");
   return attributes.join("; ");
 }
 
-function isLocalRequest(request: FastifyRequest): boolean {
-  return request.ip === "127.0.0.1" || request.ip === "::1" || request.ip === "::ffff:127.0.0.1";
+class LoginAttemptLimiter {
+  private readonly failures = new Map<string, { count: number; blockedUntil: number }>();
+
+  public constructor(private readonly now: () => Date) {}
+
+  public allow(key: string): boolean {
+    const state = this.failures.get(key);
+    return !state || state.blockedUntil <= this.now().getTime();
+  }
+
+  public recordFailure(key: string): void {
+    const current = this.failures.get(key);
+    const count = (current?.count ?? 0) + 1;
+    this.failures.set(key, {
+      count,
+      blockedUntil: count >= 5 ? this.now().getTime() + 15 * 60_000 : 0,
+    });
+  }
+
+  public clear(key: string): void {
+    this.failures.delete(key);
+  }
 }

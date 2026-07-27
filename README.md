@@ -73,11 +73,15 @@ FLOWMIND_REMINDER_RECOVERY_MINUTES=10
 NEXT_PUBLIC_FLOWMIND_API_URL=http://localhost:3001
 ```
 
-Para desenvolvimento local, copie `.env.example` para `.env` e defina um
-`FLOWMIND_ADMIN_TOKEN` forte. Os comandos `npm run start`,
-`npm run whatsapp:start` e `npm run whatsapp:verify` carregam esse arquivo
-automaticamente. O `.env`, o storage e as credenciais do WhatsApp sao
-ignorados pelo Git.
+Para desenvolvimento local, copie `.env.example` para `.env` e crie o primeiro
+administrador com `npm run admin:create`. Os comandos `npm run start`,
+`npm run whatsapp:start` e `npm run whatsapp:verify` carregam o `.env`
+automaticamente. O `.env`, o storage, as contas e as credenciais do WhatsApp
+sao ignorados pelo Git.
+
+O painel administrativo usa e-mail e senha. Senhas sao derivadas com `scrypt`
+e salt individual; sessoes opacas ficam em cookie HTTP-only e podem ser
+revogadas no logout. Nao existe cadastro publico.
 
 A API cria automaticamente `agents.json`, `sessions.json`, `reminders.json` e
 `reminder-occurrences.json` no diretorio configurado. Escritas concorrentes sao

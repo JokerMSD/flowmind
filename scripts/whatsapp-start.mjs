@@ -4,11 +4,6 @@ import { loadLocalEnv } from "./load-local-env.mjs";
 
 loadLocalEnv();
 
-if (!process.env.FLOWMIND_ADMIN_TOKEN) {
-  console.error("Defina FLOWMIND_ADMIN_TOKEN antes de iniciar o painel administrativo.");
-  process.exit(1);
-}
-
 const command = process.platform === "win32" ? "corepack.cmd" : "corepack";
 const child = spawn(
   command,

@@ -4,16 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "admin:create": "tsx src/admin/create-admin.ts",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "tsx --test src/server.test.ts",
+    "test": "tsx --test src/server.test.ts src/admin/auth.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@flowmind/agent-core": "workspace:*",
     "@flowmind/agent-memory": "workspace:*",
     "@flowmind/agent-runtime": "workspace:*",
+    "@flowmind/auth-core": "workspace:*",
+    "@flowmind/auth-memory": "workspace:*",
     "@flowmind/channel-core": "workspace:*",
     "@flowmind/channel-memory": "workspace:*",
     "@flowmind/channel-runtime": "workspace:*",

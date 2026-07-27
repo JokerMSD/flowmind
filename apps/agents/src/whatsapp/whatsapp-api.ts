@@ -74,8 +74,13 @@ function conversationsFrom(payload: unknown): Conversation[] {
 export const whatsAppApi = {
   session: async () =>
     unwrap(await request<AdminSession | { data: AdminSession }>("/admin/auth/status")),
-  login: (token: string) =>
-    request<AdminSession>("/admin/auth/login", { method: "POST", body: JSON.stringify({ token }) }),
+  login: async (email: string, password: string) =>
+    unwrap(
+      await request<AdminSession | { data: AdminSession }>("/admin/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      }),
+    ),
   logoutAdmin: () => request<AdminSession>("/admin/auth/logout", { method: "POST" }),
   connection: async () => connectionFrom(await request<unknown>("/integrations/whatsapp/status")),
   connect: (connectionId: string) =>

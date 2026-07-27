@@ -42,4 +42,12 @@ export interface ConversationMessage {
 
 export interface AdminSession {
   authenticated: boolean;
+  user?: AdminUser | null;
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }
