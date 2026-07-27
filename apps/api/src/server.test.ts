@@ -263,6 +263,12 @@ test("WhatsApp conversations expose detail, modes, messages, manual send, and re
       automationMode: "paused",
       sessionId: "session-to-reset",
     });
+    await seedConversation(context.memory, {
+      id: "internal-lid-conversation",
+      externalConversationId: "123456789@lid",
+      displayName: "123456789@lid",
+      automationMode: "paused",
+    });
     await context.memory.messages.save({
       id: "inbound-1",
       conversationId: conversation.id,
@@ -280,6 +286,7 @@ test("WhatsApp conversations expose detail, modes, messages, manual send, and re
       headers: { cookie },
     });
     assert.equal(listed.statusCode, 200);
+    assert.equal(listed.json().length, 1);
     assert.equal(listed.json()[0].id, conversation.id);
     assert.equal(listed.json()[0].mode, "paused");
 

@@ -285,13 +285,12 @@ test("restores persisted auth, normalizes inbound events and sends text", async 
   });
   await provider.onIdle("whatsapp-personal");
 
-  assert.equal(events.messages.length, 3);
+  assert.equal(events.messages.length, 2);
   assert.equal(events.messages[0]?.fromSelf, true);
   assert.equal(events.messages[0]?.unsupported, false);
   assert.equal(events.messages[1]?.conversationType, "group");
   assert.equal(events.messages[1]?.senderAddress.externalId, "5511777777777");
   assert.equal(events.messages[1]?.unsupported, true);
-  assert.equal(events.messages[2]?.providerMessageId, "history");
 
   const sent = await provider.send({
     connectionId: "whatsapp-personal",
@@ -343,12 +342,12 @@ test("history sync imports only the latest message from each private chat", asyn
     ],
     messages: [
       {
-        key: { id: "old", remoteJid: "5511888888888@s.whatsapp.net" },
+        key: { id: "old", remoteJid: "123456789@lid" },
         message: { conversation: "Antiga" },
         messageTimestamp: 100,
       } as WAMessage,
       {
-        key: { id: "latest", remoteJid: "5511888888888@s.whatsapp.net" },
+        key: { id: "latest", remoteJid: "123456789@lid" },
         message: { conversation: "Recente" },
         messageTimestamp: 200,
       } as WAMessage,
@@ -358,6 +357,7 @@ test("history sync imports only the latest message from each private chat", asyn
 
   assert.equal(events.messages.length, 1);
   assert.equal(events.messages[0]?.providerMessageId, "latest");
+  assert.equal(events.messages[0]?.conversationAddress.externalId, "5511888888888");
   assert.equal(events.messages[0]?.displayName, "Maria");
   assert.equal(events.messages[0]?.avatarUrl, "https://example.com/maria.jpg");
   assert.deepEqual(provider.listContacts("whatsapp-personal"), [

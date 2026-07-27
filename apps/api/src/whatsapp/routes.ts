@@ -124,8 +124,10 @@ function registerPrefix(
         ...(query.search === undefined ? {} : { search: query.search }),
         order: "desc",
       });
-      const filtered = conversations.filter((conversation) =>
-        modeMatches(conversation.automationMode, query.mode),
+      const filtered = conversations.filter(
+        (conversation) =>
+          !conversation.externalConversationId.endsWith("@lid") &&
+          modeMatches(conversation.automationMode, query.mode),
       );
       return (await container.hydrateConversationIdentities(filtered)).map(conversationPayload);
     }),
@@ -142,7 +144,8 @@ function registerPrefix(
         order: "desc",
       });
       const privateConversations = conversations.filter(
-        (conversation) => conversation.type === "private",
+        (conversation) =>
+          conversation.type === "private" && !conversation.externalConversationId.endsWith("@lid"),
       );
       const conversationByPhone = new Map(
         privateConversations.map((conversation) => [

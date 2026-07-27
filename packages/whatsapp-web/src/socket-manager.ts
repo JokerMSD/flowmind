@@ -438,7 +438,7 @@ export class WhatsAppSocketManager {
   }
 
   private async handleMessagesUpsert(event: MessagesUpsert): Promise<void> {
-    if (!this.listener) return;
+    if (event.type !== "notify" || !this.listener) return;
     for (const raw of event.messages) {
       await this.deliverMessage(raw);
     }
@@ -488,7 +488,10 @@ export class WhatsAppSocketManager {
     if (!phoneSource) return;
     const id = normalizeWhatsAppJid(phoneSource);
     if (!/^\d{8,15}$/.test(id)) return;
-    for (const alias of aliases) this.contactPhonesByAlias.set(alias, id);
+    for (const alias of aliases) {
+      this.contactPhonesByAlias.set(alias, id);
+      this.contactPhonesByAlias.set(normalizeWhatsAppJid(alias), id);
+    }
     const previous = this.contacts.get(id);
     const name = contact.name ?? contact.notify ?? contact.verifiedName ?? previous?.name ?? id;
     const avatarUrl =
@@ -508,13 +511,30 @@ export class WhatsAppSocketManager {
     if (!this.listener) return;
     const normalized = normalizeInboundMessage(this.connectionId, raw);
     if (!normalized) return;
+    const conversationId =
+      this.contactPhonesByAlias.get(normalized.conversationAddress.externalId) ??
+      normalized.conversationAddress.externalId;
+    const senderId =
+      this.contactPhonesByAlias.get(normalized.senderAddress.externalId) ??
+      normalized.senderAddress.externalId;
+    const addressed: InboundMessage = {
+      ...normalized,
+      conversationAddress: {
+        ...normalized.conversationAddress,
+        externalId: conversationId,
+      },
+      senderAddress: {
+        ...normalized.senderAddress,
+        externalId: senderId,
+      },
+    };
     const identity = await this.resolveConversationIdentity(
-      normalized.conversationAddress.externalId,
-      normalized.conversationType,
-      historyIdentity.displayName ?? normalized.displayName,
+      addressed.conversationAddress.externalId,
+      addressed.conversationType,
+      historyIdentity.displayName ?? addressed.displayName,
     );
     const message: InboundMessage = {
-      ...normalized,
+      ...addressed,
       ...(identity.displayName === undefined ? {} : { displayName: identity.displayName }),
       ...(historyIdentity.avatarUrl === undefined && identity.avatarUrl === undefined
         ? {}
