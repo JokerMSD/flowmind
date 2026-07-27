@@ -55,12 +55,14 @@ export interface WhatsAppSocketManagerOptions {
 type ConnectionUpdate = WhatsAppSocketEventMap["connection.update"];
 type CredsUpdate = WhatsAppSocketEventMap["creds.update"];
 type MessagesUpsert = WhatsAppSocketEventMap["messages.upsert"];
+type MessagingHistorySet = WhatsAppSocketEventMap["messaging-history.set"];
 
 interface SocketBinding {
   readonly socket: WhatsAppSocket;
   readonly onConnectionUpdate: (update: ConnectionUpdate) => void;
   readonly onCredsUpdate: (update: CredsUpdate) => void;
   readonly onMessagesUpsert: (event: MessagesUpsert) => void;
+  readonly onMessagingHistorySet: (event: MessagingHistorySet) => void;
 }
 
 interface ConversationIdentity {
@@ -296,11 +298,18 @@ export class WhatsAppSocketManager {
           await this.handleMessagesUpsert(event);
         });
       },
+      onMessagingHistorySet: (event) => {
+        this.enqueueEvent(async () => {
+          if (this.socket !== socket) return;
+          await this.handleMessagingHistorySet(event);
+        });
+      },
     };
     this.binding = binding;
     socket.ev.on("connection.update", binding.onConnectionUpdate);
     socket.ev.on("creds.update", binding.onCredsUpdate);
     socket.ev.on("messages.upsert", binding.onMessagesUpsert);
+    socket.ev.on("messaging-history.set", binding.onMessagingHistorySet);
   }
 
   private detachSocket(): WhatsAppSocket | undefined {
@@ -311,6 +320,7 @@ export class WhatsAppSocketManager {
       socket.ev.off("connection.update", binding.onConnectionUpdate);
       socket.ev.off("creds.update", binding.onCredsUpdate);
       socket.ev.off("messages.upsert", binding.onMessagesUpsert);
+      socket.ev.off("messaging-history.set", binding.onMessagingHistorySet);
     }
     this.binding = undefined;
     this.socket = undefined;
@@ -398,24 +408,75 @@ export class WhatsAppSocketManager {
   private async handleMessagesUpsert(event: MessagesUpsert): Promise<void> {
     if (event.type !== "notify" || !this.listener) return;
     for (const raw of event.messages) {
-      const normalized = normalizeInboundMessage(this.connectionId, raw);
-      if (!normalized) continue;
-      const identity = await this.resolveConversationIdentity(
-        normalized.conversationAddress.externalId,
-        normalized.conversationType,
-        normalized.displayName,
-      );
-      const message: InboundMessage = {
-        ...normalized,
-        ...(identity.displayName === undefined ? {} : { displayName: identity.displayName }),
-        ...(identity.avatarUrl === undefined ? {} : { avatarUrl: identity.avatarUrl }),
-      };
-      try {
-        await this.listener.onMessage(message);
-      } catch {
-        // Consumer failures are isolated by the channel runtime.
+      await this.deliverMessage(raw);
+    }
+  }
+
+  private async handleMessagingHistorySet(event: MessagingHistorySet): Promise<void> {
+    if (!this.listener) return;
+    const contacts = new Map<string, MessagingHistorySet["contacts"][number]>();
+    for (const contact of event.contacts) {
+      for (const id of [contact.id, contact.lid, contact.phoneNumber]) {
+        if (id) contacts.set(normalizeWhatsAppJid(id), contact);
       }
     }
+
+    const latestByChat = new Map<string, MessagingHistorySet["messages"][number]>();
+    for (const message of event.messages) {
+      const jid = message.key.remoteJid;
+      if (!jid) continue;
+      const key = normalizeWhatsAppJid(jid);
+      const current = latestByChat.get(key);
+      if (!current || this.messageTimestamp(message) > this.messageTimestamp(current)) {
+        latestByChat.set(key, message);
+      }
+    }
+
+    for (const [externalId, message] of latestByChat) {
+      const contact = contacts.get(externalId);
+      const displayName = contact?.name ?? contact?.notify ?? contact?.verifiedName;
+      const avatarUrl =
+        contact?.imgUrl && contact.imgUrl !== "changed" ? contact.imgUrl : undefined;
+      await this.deliverMessage(message, {
+        ...(displayName === undefined ? {} : { displayName }),
+        ...(avatarUrl === undefined ? {} : { avatarUrl }),
+      });
+    }
+  }
+
+  private async deliverMessage(
+    raw: MessagingHistorySet["messages"][number],
+    historyIdentity: ConversationIdentity = {},
+  ): Promise<void> {
+    if (!this.listener) return;
+    const normalized = normalizeInboundMessage(this.connectionId, raw);
+    if (!normalized) return;
+    const identity = await this.resolveConversationIdentity(
+      normalized.conversationAddress.externalId,
+      normalized.conversationType,
+      historyIdentity.displayName ?? normalized.displayName,
+    );
+    const message: InboundMessage = {
+      ...normalized,
+      ...(identity.displayName === undefined ? {} : { displayName: identity.displayName }),
+      ...(historyIdentity.avatarUrl === undefined && identity.avatarUrl === undefined
+        ? {}
+        : { avatarUrl: historyIdentity.avatarUrl ?? identity.avatarUrl }),
+    };
+    try {
+      await this.listener.onMessage(message);
+    } catch {
+      // Consumer failures are isolated by the channel runtime.
+    }
+  }
+
+  private messageTimestamp(message: MessagingHistorySet["messages"][number]): number {
+    const timestamp = message.messageTimestamp;
+    if (typeof timestamp === "number") return timestamp;
+    if (timestamp && typeof timestamp === "object" && "toNumber" in timestamp) {
+      return timestamp.toNumber();
+    }
+    return 0;
   }
 
   public async resolveConversationIdentity(

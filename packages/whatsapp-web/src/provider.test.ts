@@ -313,6 +313,49 @@ test("restores persisted auth, normalizes inbound events and sends text", async 
   });
 });
 
+test("history sync imports only the latest message from each private chat", async (t) => {
+  const root = await storage();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const factory = new FakeSocketFactory();
+  const events = capture();
+  const provider = new WhatsAppWebProvider({
+    authDirectory: root,
+    socketFactory: factory.create,
+  });
+
+  await provider.connect(connection(), events.listener);
+  const socket = factory.sockets[0];
+  assert.ok(socket);
+  socket.ev.emit("messaging-history.set", {
+    chats: [],
+    contacts: [
+      {
+        id: "5511888888888@s.whatsapp.net",
+        name: "Maria",
+        imgUrl: "https://example.com/maria.jpg",
+      },
+    ],
+    messages: [
+      {
+        key: { id: "old", remoteJid: "5511888888888@s.whatsapp.net" },
+        message: { conversation: "Antiga" },
+        messageTimestamp: 100,
+      } as WAMessage,
+      {
+        key: { id: "latest", remoteJid: "5511888888888@s.whatsapp.net" },
+        message: { conversation: "Recente" },
+        messageTimestamp: 200,
+      } as WAMessage,
+    ],
+  });
+  await provider.onIdle("whatsapp-personal");
+
+  assert.equal(events.messages.length, 1);
+  assert.equal(events.messages[0]?.providerMessageId, "latest");
+  assert.equal(events.messages[0]?.displayName, "Maria");
+  assert.equal(events.messages[0]?.avatarUrl, "https://example.com/maria.jpg");
+});
+
 test("reconnects with bounded backoff and resets after an open socket", async (t) => {
   const root = await storage();
   t.after(() => rm(root, { recursive: true, force: true }));

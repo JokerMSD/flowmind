@@ -1,8 +1,10 @@
-import makeWASocket from "@whiskeysockets/baileys";
+import makeWASocket, { Browsers } from "@whiskeysockets/baileys";
 import type {
   AuthenticationCreds,
   AuthenticationState,
+  Chat,
   ConnectionState,
+  Contact,
   WAMessage,
 } from "@whiskeysockets/baileys";
 import { pino } from "pino";
@@ -13,6 +15,11 @@ export interface WhatsAppSocketEventMap {
   readonly "messages.upsert": {
     readonly messages: WAMessage[];
     readonly type: "append" | "notify";
+  };
+  readonly "messaging-history.set": {
+    readonly chats: Chat[];
+    readonly contacts: Contact[];
+    readonly messages: WAMessage[];
   };
 }
 
@@ -53,12 +60,13 @@ const silentLogger = pino({ level: "silent" });
 export const defaultWhatsAppSocketFactory: WhatsAppSocketFactory = ({ auth }) => {
   const socket = makeWASocket({
     auth,
+    browser: Browsers.ubuntu("Desktop"),
     logger: silentLogger,
     printQRInTerminal: false,
     emitOwnEvents: true,
     markOnlineOnConnect: false,
-    shouldSyncHistoryMessage: () => false,
-    syncFullHistory: false,
+    shouldSyncHistoryMessage: () => true,
+    syncFullHistory: true,
   });
   return {
     ev: socket.ev,
