@@ -107,11 +107,6 @@ export const whatsAppApi = {
       method: "POST",
       body: JSON.stringify({ connectionId }),
     }),
-  reconnect: (connectionId: string) =>
-    request<unknown>("/integrations/whatsapp/reconnect", {
-      method: "POST",
-      body: JSON.stringify({ connectionId }),
-    }),
   logoutConnection: (connectionId: string) =>
     request<unknown>("/integrations/whatsapp/logout", {
       method: "POST",

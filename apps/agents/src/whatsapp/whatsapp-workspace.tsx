@@ -329,11 +329,9 @@ export function WhatsAppWorkspace(): React.ReactElement {
           </button>
           <button
             disabled={busy}
-            onClick={() =>
-              void run(() => whatsAppApi.reconnect(connection.id), "Reconexao solicitada.")
-            }
+            onClick={() => void run(() => Promise.resolve(), "Dados atualizados.")}
           >
-            Reconectar
+            Atualizar dados
           </button>
           <button
             className="wa-danger"
