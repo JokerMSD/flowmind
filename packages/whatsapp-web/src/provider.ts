@@ -17,7 +17,11 @@ import { AuthStateRepository } from "./auth-state-repository.js";
 import type { WhatsAppSocketFactory } from "./baileys-socket.js";
 import { InvalidWhatsAppConnectionError, WhatsAppConnectionNotFoundError } from "./errors.js";
 import { WhatsAppSocketManager } from "./socket-manager.js";
-import type { WhatsAppConnectionSnapshot, WhatsAppSocketManagerOptions } from "./socket-manager.js";
+import type {
+  WhatsAppConnectionSnapshot,
+  WhatsAppContact,
+  WhatsAppSocketManagerOptions,
+} from "./socket-manager.js";
 
 export interface WhatsAppWebProviderOptions {
   readonly authDirectory: string;
@@ -123,6 +127,10 @@ export class WhatsAppWebProvider implements ChannelProvider {
 
   public getSnapshot(connectionId: string): WhatsAppConnectionSnapshot | undefined {
     return this.managers.get(connectionId)?.getSnapshot();
+  }
+
+  public listContacts(connectionId: string): readonly WhatsAppContact[] {
+    return this.managers.get(connectionId)?.listContacts() ?? [];
   }
 
   public async resolveConversationIdentity(

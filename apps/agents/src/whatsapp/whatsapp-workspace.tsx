@@ -10,6 +10,7 @@ import type {
   Conversation,
   ConversationMessage,
   ConversationMode,
+  WhatsAppContact,
   WhatsAppConnection,
 } from "./types";
 
@@ -50,13 +51,13 @@ function readableTime(value?: string): string | null {
 }
 
 function Avatar({
-  conversation,
+  identity,
   size = "medium",
 }: {
-  conversation: Conversation;
+  identity: Pick<Conversation | WhatsAppContact, "name" | "avatarUrl">;
   size?: "medium" | "large";
 }) {
-  const fallback = conversation.name
+  const fallback = identity.name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -64,8 +65,8 @@ function Avatar({
     .join("");
   return (
     <span className={`wa-avatar ${size}`}>
-      {conversation.avatarUrl ? (
-        <img src={conversation.avatarUrl} alt="" referrerPolicy="no-referrer" />
+      {identity.avatarUrl ? (
+        <img src={identity.avatarUrl} alt="" referrerPolicy="no-referrer" />
       ) : (
         fallback || "#"
       )}
@@ -79,6 +80,8 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const [password, setPassword] = useState("");
   const [connection, setConnection] = useState(emptyConnection);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [contacts, setContacts] = useState<WhatsAppContact[]>([]);
+  const [activeList, setActiveList] = useState<"conversations" | "contacts">("conversations");
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [search, setSearch] = useState("");
@@ -95,12 +98,17 @@ export function WhatsAppWorkspace(): React.ReactElement {
 
   const refresh = useCallback(
     async (includeMessages = true) => {
-      const [nextConnection, nextConversations] = await Promise.all([
+      const [nextConnection, nextConversations, nextContacts] = await Promise.all([
         whatsAppApi.connection(),
-        whatsAppApi.conversations(search, filter),
+        whatsAppApi.conversations(
+          activeList === "conversations" ? search : "",
+          activeList === "conversations" ? filter : "all",
+        ),
+        whatsAppApi.contacts(connection.id),
       ]);
       setConnection(nextConnection);
       setConversations(nextConversations);
+      setContacts(nextContacts);
       const currentId = selectedId.current;
       const nextSelected = currentId
         ? (nextConversations.find((item) => item.id === currentId) ?? null)
@@ -109,7 +117,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
       if (includeMessages && nextSelected) setMessages(await whatsAppApi.messages(nextSelected.id));
       if (!nextSelected) setMessages([]);
     },
-    [filter, search],
+    [activeList, connection.id, filter, search],
   );
 
   useEffect(() => {
@@ -198,6 +206,15 @@ export function WhatsAppWorkspace(): React.ReactElement {
     () => (filter === "all" ? "Todos os modos" : modeLabel[filter as ConversationMode]),
     [filter],
   );
+  const visibleContacts = useMemo(() => {
+    const normalized = search.trim().toLocaleLowerCase("pt-BR");
+    if (!normalized) return contacts;
+    return contacts.filter(
+      (contact) =>
+        contact.name.toLocaleLowerCase("pt-BR").includes(normalized) ||
+        contact.phone?.includes(normalized),
+    );
+  }, [contacts, search]);
   const canSend = Boolean(
     selected &&
     connection.globalEnabled &&
@@ -355,48 +372,100 @@ export function WhatsAppWorkspace(): React.ReactElement {
       </section>
       <section className="wa-workspace">
         <aside className="wa-conversations">
-          <div className="wa-panel-title">
-            <h2>Conversas</h2>
-            <span>{conversations.length}</span>
+          <div className="wa-list-tabs" role="tablist" aria-label="Navegacao do WhatsApp">
+            <button
+              role="tab"
+              aria-selected={activeList === "conversations"}
+              className={activeList === "conversations" ? "active" : ""}
+              onClick={() => setActiveList("conversations")}
+            >
+              Conversas <span>{conversations.length}</span>
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeList === "contacts"}
+              className={activeList === "contacts" ? "active" : ""}
+              onClick={() => setActiveList("contacts")}
+            >
+              Contatos <span>{contacts.length}</span>
+            </button>
           </div>
           <input
-            aria-label="Buscar conversas"
+            aria-label={activeList === "conversations" ? "Buscar conversas" : "Buscar contatos"}
             placeholder="Buscar nome ou numero"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <select
-            aria-label="Filtrar por modo"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          >
-            <option value="all">Todos os modos</option>
-            {modes.map((mode) => (
-              <option key={mode} value={mode}>
-                {modeLabel[mode]}
-              </option>
-            ))}
-          </select>
-          <p className="wa-filter-label">{filterLabel}</p>
-          <div className="wa-list">
-            {conversations.map((item) => (
-              <button
-                className={selected?.id === item.id ? "selected" : ""}
-                key={item.id}
-                onClick={() => setSelected(item)}
+          {activeList === "conversations" ? (
+            <>
+              <select
+                aria-label="Filtrar por modo"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
               >
-                <Avatar conversation={item} />
-                <span className="wa-conversation-copy">
-                  <strong>{item.name}</strong>
-                  <small>{item.preview ?? item.phone ?? "Sem mensagens"}</small>
-                  <em className={`wa-mode ${item.mode}`}>{modeLabel[item.mode]}</em>
-                </span>
-                {item.unread ? <b>{item.unread}</b> : null}
-              </button>
-            ))}
-            {!conversations.length ? (
-              <p className="wa-empty">Nenhuma conversa encontrada.</p>
-            ) : null}
+                <option value="all">Todos os modos</option>
+                {modes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {modeLabel[mode]}
+                  </option>
+                ))}
+              </select>
+              <p className="wa-filter-label">{filterLabel}</p>
+            </>
+          ) : (
+            <p className="wa-filter-label">{visibleContacts.length} contatos sincronizados</p>
+          )}
+          <div className="wa-list">
+            {activeList === "conversations" ? (
+              <>
+                {conversations.map((item) => (
+                  <button
+                    className={selected?.id === item.id ? "selected" : ""}
+                    key={item.id}
+                    onClick={() => setSelected(item)}
+                  >
+                    <Avatar identity={item} />
+                    <span className="wa-conversation-copy">
+                      <strong>{item.name}</strong>
+                      <small>{item.preview ?? item.phone ?? "Sem mensagens"}</small>
+                      <em className={`wa-mode ${item.mode}`}>{modeLabel[item.mode]}</em>
+                    </span>
+                    {item.unread ? <b>{item.unread}</b> : null}
+                  </button>
+                ))}
+                {!conversations.length ? (
+                  <p className="wa-empty">Nenhuma conversa encontrada.</p>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {visibleContacts.map((contact) => {
+                  const conversation = conversations.find(
+                    (item) => item.id === contact.conversationId,
+                  );
+                  return (
+                    <button
+                      className={conversation && selected?.id === conversation.id ? "selected" : ""}
+                      disabled={!conversation}
+                      key={contact.id}
+                      onClick={() => conversation && setSelected(conversation)}
+                    >
+                      <Avatar identity={contact} />
+                      <span className="wa-conversation-copy">
+                        <strong>{contact.name}</strong>
+                        <small>{contact.phone ?? "Numero indisponivel"}</small>
+                        <em className="wa-contact-state">
+                          {conversation ? "Abrir conversa" : "Sem conversa"}
+                        </em>
+                      </span>
+                    </button>
+                  );
+                })}
+                {!visibleContacts.length ? (
+                  <p className="wa-empty">Nenhum contato sincronizado.</p>
+                ) : null}
+              </>
+            )}
           </div>
         </aside>
         <article className="wa-chat">
@@ -404,7 +473,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
             <>
               <header>
                 <div className="wa-chat-identity">
-                  <Avatar conversation={selected} size="large" />
+                  <Avatar identity={selected} size="large" />
                   <div>
                     <h2>{selected.name}</h2>
                     <p>

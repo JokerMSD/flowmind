@@ -70,6 +70,13 @@ interface ConversationIdentity {
   readonly avatarUrl?: string;
 }
 
+export interface WhatsAppContact {
+  readonly id: string;
+  readonly name: string;
+  readonly phone?: string;
+  readonly avatarUrl?: string;
+}
+
 function defaultDelay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -124,6 +131,7 @@ export class WhatsAppSocketManager {
   private generation = 0;
   private eventChain: Promise<void> = Promise.resolve();
   private readonly identityCache = new Map<string, Promise<ConversationIdentity>>();
+  private readonly contacts = new Map<string, WhatsAppContact>();
 
   public readonly connectionId: string;
   public readonly authState: AuthStateRepository;
@@ -260,6 +268,12 @@ export class WhatsAppSocketManager {
 
   public onIdle(): Promise<void> {
     return this.eventChain;
+  }
+
+  public listContacts(): readonly WhatsAppContact[] {
+    return [...this.contacts.values()].sort((left, right) =>
+      left.name.localeCompare(right.name, "pt-BR"),
+    );
   }
 
   private enqueueEvent(operation: () => Promise<void>): void {
@@ -419,6 +433,7 @@ export class WhatsAppSocketManager {
       for (const id of [contact.id, contact.lid, contact.phoneNumber]) {
         if (id) contacts.set(normalizeWhatsAppJid(id), contact);
       }
+      this.cacheContact(contact);
     }
 
     const latestByChat = new Map<string, MessagingHistorySet["messages"][number]>();
@@ -442,6 +457,21 @@ export class WhatsAppSocketManager {
         ...(avatarUrl === undefined ? {} : { avatarUrl }),
       });
     }
+  }
+
+  private cacheContact(contact: MessagingHistorySet["contacts"][number]): void {
+    const sourceId = contact.phoneNumber ?? contact.id;
+    if (!sourceId || sourceId.endsWith("@g.us")) return;
+    const id = normalizeWhatsAppJid(sourceId);
+    if (!/^\d+$/.test(id)) return;
+    const name = contact.name ?? contact.notify ?? contact.verifiedName ?? id;
+    const avatarUrl = contact.imgUrl && contact.imgUrl !== "changed" ? contact.imgUrl : undefined;
+    this.contacts.set(id, {
+      id,
+      name,
+      phone: id,
+      ...(avatarUrl === undefined ? {} : { avatarUrl }),
+    });
   }
 
   private async deliverMessage(

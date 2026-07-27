@@ -354,6 +354,14 @@ test("history sync imports only the latest message from each private chat", asyn
   assert.equal(events.messages[0]?.providerMessageId, "latest");
   assert.equal(events.messages[0]?.displayName, "Maria");
   assert.equal(events.messages[0]?.avatarUrl, "https://example.com/maria.jpg");
+  assert.deepEqual(provider.listContacts("whatsapp-personal"), [
+    {
+      id: "5511888888888",
+      name: "Maria",
+      phone: "5511888888888",
+      avatarUrl: "https://example.com/maria.jpg",
+    },
+  ]);
 });
 
 test("reconnects with bounded backoff and resets after an open socket", async (t) => {

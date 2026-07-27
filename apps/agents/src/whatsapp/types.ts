@@ -35,6 +35,14 @@ export interface Conversation {
   mode: ConversationMode;
 }
 
+export interface WhatsAppContact {
+  id: string;
+  name: string;
+  phone?: string;
+  avatarUrl?: string;
+  conversationId?: string;
+}
+
 export interface ConversationMessage {
   id: string;
   body: string;

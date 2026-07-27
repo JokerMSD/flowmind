@@ -131,6 +131,58 @@ function registerPrefix(
     }),
   );
 
+  server.get(`${prefix}/contacts`, protectedRoute, async (request, reply) =>
+    respond(reply, async () => {
+      const query = asRecord(request.query);
+      const connectionId = parseConnectionId(query.connectionId);
+      await requireConnection(container, connectionId);
+      const contacts = container.provider.listContacts?.(connectionId) ?? [];
+      const conversations = await container.memory.conversations.list({
+        connectionId,
+        order: "desc",
+      });
+      const privateConversations = conversations.filter(
+        (conversation) => conversation.type === "private",
+      );
+      const conversationByPhone = new Map(
+        privateConversations.map((conversation) => [
+          conversation.normalizedPhone ?? conversation.externalConversationId,
+          conversation,
+        ]),
+      );
+      const merged = new Map(
+        contacts.map((contact) => {
+          const conversation = conversationByPhone.get(contact.phone ?? contact.id);
+          return [
+            contact.id,
+            {
+              ...contact,
+              ...(conversation === undefined ? {} : { conversationId: conversation.id }),
+            },
+          ];
+        }),
+      );
+      for (const conversation of privateConversations) {
+        const phone = conversation.normalizedPhone ?? conversation.externalConversationId;
+        if (merged.has(phone)) continue;
+        const avatarUrl =
+          typeof conversation.metadata.avatarUrl === "string"
+            ? conversation.metadata.avatarUrl
+            : undefined;
+        merged.set(phone, {
+          id: phone,
+          name: conversation.displayName ?? phone,
+          phone,
+          conversationId: conversation.id,
+          ...(avatarUrl === undefined ? {} : { avatarUrl }),
+        });
+      }
+      return [...merged.values()].sort((left, right) =>
+        left.name.localeCompare(right.name, "pt-BR"),
+      );
+    }),
+  );
+
   server.get(`${prefix}/conversations/:conversationId`, protectedRoute, async (request, reply) =>
     respond(reply, async () => conversationPayload(await requireConversation(container, request))),
   );

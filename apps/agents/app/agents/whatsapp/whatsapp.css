@@ -236,6 +236,34 @@
   color: var(--muted);
   font-size: 12px;
 }
+.wa-list-tabs {
+  background: #0b0e13;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+}
+.wa-list-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 8px;
+}
+.wa-list-tabs button.active {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+.wa-list-tabs span {
+  color: var(--muted);
+  font-size: 10px;
+  margin-left: 4px;
+}
 .wa-conversations input,
 .wa-conversations select,
 .wa-actions select,
@@ -288,6 +316,10 @@
 }
 .wa-list > button.selected {
   box-shadow: inset 3px 0 var(--accent);
+}
+.wa-list > button:disabled {
+  cursor: default;
+  opacity: 0.72;
 }
 .wa-avatar {
   align-items: center;
@@ -342,6 +374,11 @@
 .wa-mode.disabled,
 .wa-mode.paused {
   color: #facc15;
+}
+.wa-contact-state {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
 }
 .wa-list b {
   background: var(--accent);

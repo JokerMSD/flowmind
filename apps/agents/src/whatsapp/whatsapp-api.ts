@@ -4,6 +4,7 @@ import type {
   Conversation,
   ConversationMessage,
   ConversationMode,
+  WhatsAppContact,
   WhatsAppConnection,
 } from "./types";
 
@@ -74,6 +75,21 @@ function conversationsFrom(payload: unknown): Conversation[] {
   });
 }
 
+function contactsFrom(payload: unknown): WhatsAppContact[] {
+  const value = unwrap(payload as unknown[] | { items?: unknown[]; contacts?: unknown[] });
+  const list = Array.isArray(value) ? value : (value.items ?? value.contacts ?? []);
+  return list.map((item) => {
+    const row = item as Record<string, unknown>;
+    return {
+      id: String(row.id),
+      name: String(row.name ?? row.phone ?? "Contato"),
+      ...(typeof row.phone === "string" ? { phone: row.phone } : {}),
+      ...(typeof row.avatarUrl === "string" ? { avatarUrl: row.avatarUrl } : {}),
+      ...(typeof row.conversationId === "string" ? { conversationId: row.conversationId } : {}),
+    };
+  });
+}
+
 export const whatsAppApi = {
   session: async () =>
     unwrap(await request<AdminSession | { data: AdminSession }>("/admin/auth/status")),
@@ -112,6 +128,12 @@ export const whatsAppApi = {
     conversationsFrom(
       await request<unknown>(
         `/integrations/whatsapp/conversations?search=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}`,
+      ),
+    ),
+  contacts: async (connectionId: string) =>
+    contactsFrom(
+      await request<unknown>(
+        `/integrations/whatsapp/contacts?connectionId=${encodeURIComponent(connectionId)}`,
       ),
     ),
   messages: async (id: string) =>

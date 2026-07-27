@@ -283,6 +283,21 @@ test("WhatsApp conversations expose detail, modes, messages, manual send, and re
     assert.equal(listed.json()[0].id, conversation.id);
     assert.equal(listed.json()[0].mode, "paused");
 
+    const contacts = await server.inject({
+      method: "GET",
+      url: `/integrations/whatsapp/contacts?connectionId=${WHATSAPP_PERSONAL_CONNECTION_ID}`,
+      headers: { cookie },
+    });
+    assert.equal(contacts.statusCode, 200);
+    assert.deepEqual(contacts.json(), [
+      {
+        id: conversation.externalConversationId,
+        name: "Cliente",
+        phone: conversation.externalConversationId,
+        conversationId: conversation.id,
+      },
+    ]);
+
     const detail = await server.inject({
       method: "GET",
       url: `/integrations/whatsapp/conversations/${conversation.id}`,
@@ -689,6 +704,14 @@ class FakeWhatsAppProvider implements WhatsAppProviderPort {
 
   public getSnapshot(connectionId: string): WhatsAppConnectionSnapshot | undefined {
     return this.snapshots.get(connectionId);
+  }
+
+  public listContacts(): readonly {
+    id: string;
+    name: string;
+    phone: string;
+  }[] {
+    return [{ id: "5511888888888", name: "Cliente", phone: "5511888888888" }];
   }
 
   public setSnapshot(snapshot: WhatsAppConnectionSnapshot): void {
