@@ -25,6 +25,7 @@ import {
 
 const DEFAULT_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const DEFAULT_QR_TTL_MS = 60_000;
+const IDENTITY_LOOKUP_TIMEOUT_MS = 1_500;
 
 export interface WhatsAppQrSnapshot {
   readonly value: string;
@@ -420,7 +421,7 @@ export class WhatsAppSocketManager {
   }
 
   private async handleMessagesUpsert(event: MessagesUpsert): Promise<void> {
-    if (event.type !== "notify" || !this.listener) return;
+    if (!this.listener) return;
     for (const raw of event.messages) {
       await this.deliverMessage(raw);
     }
@@ -539,13 +540,15 @@ export class WhatsAppSocketManager {
   ): Promise<ConversationIdentity> {
     const [groupName, avatarUrl] = await Promise.all([
       conversationType === "group" && this.socket?.groupMetadata
-        ? this.socket
-            .groupMetadata(jid)
-            .then((metadata) => metadata.subject?.trim() || undefined)
-            .catch(() => undefined)
+        ? settleWithin(
+            this.socket
+              .groupMetadata(jid)
+              .then((metadata) => metadata.subject?.trim() || undefined),
+            IDENTITY_LOOKUP_TIMEOUT_MS,
+          )
         : Promise.resolve(displayName),
       this.socket?.profilePictureUrl
-        ? this.socket.profilePictureUrl(jid, "preview").catch(() => undefined)
+        ? settleWithin(this.socket.profilePictureUrl(jid, "preview"), IDENTITY_LOOKUP_TIMEOUT_MS)
         : Promise.resolve(undefined),
     ]);
     return {
@@ -598,4 +601,20 @@ export class WhatsAppSocketManager {
     if (!this.qr) return;
     if (Date.parse(this.qr.expiresAt) <= this.now().getTime()) this.clearQr();
   }
+}
+
+function settleWithin<T>(operation: Promise<T>, milliseconds: number): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), milliseconds);
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(undefined);
+      },
+    );
+  });
 }

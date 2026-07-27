@@ -285,12 +285,13 @@ test("restores persisted auth, normalizes inbound events and sends text", async 
   });
   await provider.onIdle("whatsapp-personal");
 
-  assert.equal(events.messages.length, 2);
+  assert.equal(events.messages.length, 3);
   assert.equal(events.messages[0]?.fromSelf, true);
   assert.equal(events.messages[0]?.unsupported, false);
   assert.equal(events.messages[1]?.conversationType, "group");
   assert.equal(events.messages[1]?.senderAddress.externalId, "5511777777777");
   assert.equal(events.messages[1]?.unsupported, true);
+  assert.equal(events.messages[2]?.providerMessageId, "history");
 
   const sent = await provider.send({
     connectionId: "whatsapp-personal",
