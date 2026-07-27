@@ -2,8 +2,17 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 
 import { loadLocalEnv } from "./load-local-env.mjs";
+import {
+  clearLocalInstance,
+  saveLocalInstance,
+  stopPreviousLocalInstance,
+} from "./local-process.mjs";
 
 loadLocalEnv();
+if (stopPreviousLocalInstance()) {
+  console.log("Instancia anterior do FlowMind encerrada.");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}
 
 const applications = [
   { name: "Editor", port: 3000 },
@@ -64,7 +73,10 @@ const child = spawn(
   },
 );
 
+saveLocalInstance(child.pid);
+
 child.on("exit", (code, signal) => {
+  clearLocalInstance(child.pid);
   if (signal) process.kill(process.pid, signal);
   process.exit(code ?? 1);
 });
