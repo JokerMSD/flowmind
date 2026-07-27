@@ -56,6 +56,7 @@ class FakeSocket implements WhatsAppSocket {
   public readonly ev = new FakeEvents();
   public readonly sent: { jid: string; content: { text: string } }[] = [];
   public readonly ended: (Error | undefined)[] = [];
+  public readonly profilePictureRequests: string[] = [];
   public logoutCalls = 0;
   public user: { id: string } | undefined;
   public sendId: string | null = "sent-1";
@@ -66,6 +67,11 @@ class FakeSocket implements WhatsAppSocket {
   ): Promise<{ key: { id: string | null } }> {
     this.sent.push({ jid, content: { text: content.text } });
     return { key: { id: this.sendId } };
+  }
+
+  public async profilePictureUrl(jid: string): Promise<string | undefined> {
+    this.profilePictureRequests.push(jid);
+    return undefined;
   }
 
   public end(error: Error | undefined): void {
@@ -360,6 +366,7 @@ test("history sync imports only the latest message from each private chat", asyn
   assert.equal(events.messages[0]?.conversationAddress.externalId, "5511888888888");
   assert.equal(events.messages[0]?.displayName, "Maria");
   assert.equal(events.messages[0]?.avatarUrl, "https://example.com/maria.jpg");
+  assert.equal(socket.profilePictureRequests.length, 0);
   assert.deepEqual(provider.listContacts("whatsapp-personal"), [
     {
       id: "5511888888888",

@@ -470,10 +470,14 @@ export class WhatsAppSocketManager {
       const displayName = contact?.name ?? contact?.notify ?? contact?.verifiedName;
       const avatarUrl =
         contact?.imgUrl && contact.imgUrl !== "changed" ? contact.imgUrl : undefined;
-      await this.deliverMessage(message, {
-        ...(displayName === undefined ? {} : { displayName }),
-        ...(avatarUrl === undefined ? {} : { avatarUrl }),
-      });
+      await this.deliverMessage(
+        message,
+        {
+          ...(displayName === undefined ? {} : { displayName }),
+          ...(avatarUrl === undefined ? {} : { avatarUrl }),
+        },
+        false,
+      );
     }
   }
 
@@ -508,6 +512,7 @@ export class WhatsAppSocketManager {
   private async deliverMessage(
     raw: MessagingHistorySet["messages"][number],
     historyIdentity: ConversationIdentity = {},
+    resolveRemoteIdentity = true,
   ): Promise<void> {
     if (!this.listener) return;
     const normalized = normalizeInboundMessage(this.connectionId, raw);
@@ -534,11 +539,13 @@ export class WhatsAppSocketManager {
       contact && contact.name !== contact.id && !contact.name.endsWith("@lid")
         ? contact.name
         : undefined;
-    const identity = await this.resolveConversationIdentity(
-      addressed.conversationAddress.externalId,
-      addressed.conversationType,
-      contactName ?? historyIdentity.displayName ?? addressed.displayName,
-    );
+    const identity = resolveRemoteIdentity
+      ? await this.resolveConversationIdentity(
+          addressed.conversationAddress.externalId,
+          addressed.conversationType,
+          contactName ?? historyIdentity.displayName ?? addressed.displayName,
+        )
+      : historyIdentity;
     const displayName = contactName ?? identity.displayName;
     const avatarUrl = contact?.avatarUrl ?? historyIdentity.avatarUrl ?? identity.avatarUrl;
     const message: InboundMessage = {

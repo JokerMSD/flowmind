@@ -169,12 +169,7 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     if (!resolveIdentity) return conversations;
     return Promise.all(
       conversations.map(async (conversation) => {
-        if (
-          hasContactDisplayName(conversation) &&
-          typeof conversation.metadata.avatarUrl === "string"
-        ) {
-          return conversation;
-        }
+        if (hasContactDisplayName(conversation)) return conversation;
         try {
           const identity = await resolveIdentity(
             conversation.connectionId,
