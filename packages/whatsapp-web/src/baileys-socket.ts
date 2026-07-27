@@ -16,6 +16,8 @@ export interface WhatsAppSocketEventMap {
     readonly messages: WAMessage[];
     readonly type: "append" | "notify";
   };
+  readonly "contacts.upsert": Contact[];
+  readonly "contacts.update": Partial<Contact>[];
   readonly "messaging-history.set": {
     readonly chats: Chat[];
     readonly contacts: Contact[];

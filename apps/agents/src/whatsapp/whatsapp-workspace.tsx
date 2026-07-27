@@ -73,6 +73,23 @@ function readableDate(value?: string): string {
   });
 }
 
+function readablePhone(value?: string): string {
+  if (!value) return "Numero indisponivel";
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 13 && digits.startsWith("55")) {
+    return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+  }
+  if (digits.length === 12 && digits.startsWith("55")) {
+    return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`;
+  }
+  return digits.length >= 8 ? `+${digits}` : value;
+}
+
+function contactName(contact: WhatsAppContact): string {
+  const normalizedName = contact.name.replace(/[\s()+.\-_*]/g, "");
+  return /^\d+$/.test(normalizedName) ? readablePhone(contact.phone ?? contact.id) : contact.name;
+}
+
 function Avatar({
   identity,
   size = "medium",
@@ -82,16 +99,16 @@ function Avatar({
 }) {
   const fallback = identity.name
     .split(/\s+/)
-    .filter(Boolean)
+    .filter((part) => /[A-Za-z]/.test(part))
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
   return (
-    <span className={`wa-avatar ${size}`}>
+    <span className={`wa-avatar ${size} ${fallback ? "" : "anonymous"}`}>
       {identity.avatarUrl ? (
         <img src={identity.avatarUrl} alt="" referrerPolicy="no-referrer" />
       ) : (
-        fallback || "#"
+        fallback
       )}
     </span>
   );
@@ -478,8 +495,8 @@ export function WhatsAppWorkspace(): React.ReactElement {
                     >
                       <Avatar identity={contact} />
                       <span className="wa-conversation-copy">
-                        <strong>{contact.name}</strong>
-                        <small>{contact.phone ?? "Numero indisponivel"}</small>
+                        <strong>{contactName(contact)}</strong>
+                        <small>{readablePhone(contact.phone)}</small>
                         <em className="wa-contact-state">
                           {conversation ? "Abrir conversa" : "Sem conversa"}
                         </em>

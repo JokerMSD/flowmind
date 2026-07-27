@@ -345,6 +345,34 @@
   object-fit: cover;
   width: 100%;
 }
+.wa-avatar.anonymous {
+  position: relative;
+}
+.wa-avatar.anonymous::before {
+  background: #aebac1;
+  border-radius: 50%;
+  content: "";
+  height: 12px;
+  position: absolute;
+  top: 9px;
+  width: 12px;
+}
+.wa-avatar.anonymous::after {
+  background: #aebac1;
+  border-radius: 12px 12px 5px 5px;
+  bottom: 7px;
+  content: "";
+  height: 13px;
+  position: absolute;
+  width: 24px;
+}
+.wa-avatar.large.anonymous::before {
+  height: 13px;
+  width: 13px;
+}
+.wa-avatar.large.anonymous::after {
+  width: 26px;
+}
 .wa-conversation-copy {
   display: grid;
   gap: 3px;

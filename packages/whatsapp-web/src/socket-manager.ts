@@ -56,6 +56,8 @@ export interface WhatsAppSocketManagerOptions {
 type ConnectionUpdate = WhatsAppSocketEventMap["connection.update"];
 type CredsUpdate = WhatsAppSocketEventMap["creds.update"];
 type MessagesUpsert = WhatsAppSocketEventMap["messages.upsert"];
+type ContactsUpsert = WhatsAppSocketEventMap["contacts.upsert"];
+type ContactsUpdate = WhatsAppSocketEventMap["contacts.update"];
 type MessagingHistorySet = WhatsAppSocketEventMap["messaging-history.set"];
 
 interface SocketBinding {
@@ -63,6 +65,8 @@ interface SocketBinding {
   readonly onConnectionUpdate: (update: ConnectionUpdate) => void;
   readonly onCredsUpdate: (update: CredsUpdate) => void;
   readonly onMessagesUpsert: (event: MessagesUpsert) => void;
+  readonly onContactsUpsert: (event: ContactsUpsert) => void;
+  readonly onContactsUpdate: (event: ContactsUpdate) => void;
   readonly onMessagingHistorySet: (event: MessagingHistorySet) => void;
 }
 
@@ -133,6 +137,7 @@ export class WhatsAppSocketManager {
   private eventChain: Promise<void> = Promise.resolve();
   private readonly identityCache = new Map<string, Promise<ConversationIdentity>>();
   private readonly contacts = new Map<string, WhatsAppContact>();
+  private readonly contactPhonesByAlias = new Map<string, string>();
 
   public readonly connectionId: string;
   public readonly authState: AuthStateRepository;
@@ -313,6 +318,14 @@ export class WhatsAppSocketManager {
           await this.handleMessagesUpsert(event);
         });
       },
+      onContactsUpsert: (event) => {
+        if (this.socket !== socket) return;
+        for (const contact of event) this.cacheContact(contact);
+      },
+      onContactsUpdate: (event) => {
+        if (this.socket !== socket) return;
+        for (const contact of event) this.cacheContact(contact);
+      },
       onMessagingHistorySet: (event) => {
         this.enqueueEvent(async () => {
           if (this.socket !== socket) return;
@@ -324,6 +337,8 @@ export class WhatsAppSocketManager {
     socket.ev.on("connection.update", binding.onConnectionUpdate);
     socket.ev.on("creds.update", binding.onCredsUpdate);
     socket.ev.on("messages.upsert", binding.onMessagesUpsert);
+    socket.ev.on("contacts.upsert", binding.onContactsUpsert);
+    socket.ev.on("contacts.update", binding.onContactsUpdate);
     socket.ev.on("messaging-history.set", binding.onMessagingHistorySet);
   }
 
@@ -335,6 +350,8 @@ export class WhatsAppSocketManager {
       socket.ev.off("connection.update", binding.onConnectionUpdate);
       socket.ev.off("creds.update", binding.onCredsUpdate);
       socket.ev.off("messages.upsert", binding.onMessagesUpsert);
+      socket.ev.off("contacts.upsert", binding.onContactsUpsert);
+      socket.ev.off("contacts.update", binding.onContactsUpdate);
       socket.ev.off("messaging-history.set", binding.onMessagingHistorySet);
     }
     this.binding = undefined;
@@ -460,13 +477,22 @@ export class WhatsAppSocketManager {
     }
   }
 
-  private cacheContact(contact: MessagingHistorySet["contacts"][number]): void {
-    const sourceId = contact.phoneNumber ?? contact.id;
-    if (!sourceId || sourceId.endsWith("@g.us")) return;
-    const id = normalizeWhatsAppJid(sourceId);
-    if (!/^\d+$/.test(id)) return;
-    const name = contact.name ?? contact.notify ?? contact.verifiedName ?? id;
-    const avatarUrl = contact.imgUrl && contact.imgUrl !== "changed" ? contact.imgUrl : undefined;
+  private cacheContact(contact: Partial<MessagingHistorySet["contacts"][number]>): void {
+    const aliases = [contact.id, contact.lid, contact.phoneNumber].filter(
+      (value): value is string => Boolean(value),
+    );
+    const phoneSource =
+      contact.phoneNumber ??
+      aliases.find((alias) => alias.endsWith("@s.whatsapp.net")) ??
+      aliases.map((alias) => this.contactPhonesByAlias.get(alias)).find(Boolean);
+    if (!phoneSource) return;
+    const id = normalizeWhatsAppJid(phoneSource);
+    if (!/^\d{8,15}$/.test(id)) return;
+    for (const alias of aliases) this.contactPhonesByAlias.set(alias, id);
+    const previous = this.contacts.get(id);
+    const name = contact.name ?? contact.notify ?? contact.verifiedName ?? previous?.name ?? id;
+    const avatarUrl =
+      contact.imgUrl && contact.imgUrl !== "changed" ? contact.imgUrl : previous?.avatarUrl;
     this.contacts.set(id, {
       id,
       name,

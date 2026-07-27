@@ -331,9 +331,14 @@ test("history sync imports only the latest message from each private chat", asyn
     chats: [],
     contacts: [
       {
-        id: "5511888888888@s.whatsapp.net",
+        id: "123456789@lid",
+        phoneNumber: "5511888888888@s.whatsapp.net",
         name: "Maria",
         imgUrl: "https://example.com/maria.jpg",
+      },
+      {
+        id: "987654321@lid",
+        name: "Identificador interno",
       },
     ],
     messages: [
@@ -363,6 +368,15 @@ test("history sync imports only the latest message from each private chat", asyn
       avatarUrl: "https://example.com/maria.jpg",
     },
   ]);
+
+  socket.ev.emit("contacts.update", [
+    {
+      id: "123456789@lid",
+      phoneNumber: "5511888888888@s.whatsapp.net",
+      notify: "Maria Silva",
+    },
+  ]);
+  assert.equal(provider.listContacts("whatsapp-personal")[0]?.name, "Maria Silva");
 });
 
 test("reconnects with bounded backoff and resets after an open socket", async (t) => {
