@@ -13,6 +13,8 @@ export interface InboundMessage {
   readonly occurredAt: string;
   readonly fromSelf: boolean;
   readonly unsupported: boolean;
+  readonly historical?: boolean;
+  readonly conversationMetadata?: Readonly<Record<string, unknown>>;
   readonly raw?: unknown;
 }
 

@@ -30,7 +30,8 @@ export type IgnoredMessageReason =
   | "auto-rate-limited"
   | "connection-not-found"
   | "connection-disabled"
-  | "connection-not-ready";
+  | "connection-not-ready"
+  | "historical";
 
 export type ConversationProcessingResult =
   | {
@@ -102,6 +103,9 @@ export class ConversationProcessor {
     );
     await this.dependencies.messages.save(inboundMessage);
 
+    if (inbound.historical) {
+      return this.ignore(external, "historical", conversation.id);
+    }
     if (inbound.unsupported) {
       return this.ignore(external, "unsupported", conversation.id);
     }
@@ -207,18 +211,28 @@ export class ConversationProcessor {
     const now = this.dependencies.clock.now().toISOString();
     const normalizedPhone = this.normalizedPhone(inbound);
     if (existing) {
+      const isLatest =
+        existing.lastMessageAt === undefined || inbound.occurredAt >= existing.lastMessageAt;
       const updated: ChannelConversation = {
         ...existing,
         ...(inbound.displayName === undefined ? {} : { displayName: inbound.displayName }),
         ...(normalizedPhone === undefined ? {} : { normalizedPhone }),
-        unreadCount: inbound.fromSelf ? existing.unreadCount : existing.unreadCount + 1,
-        lastMessagePreview: this.messagePreview(inbound),
-        lastMessageAt: inbound.occurredAt,
-        ...(inbound.fromSelf
-          ? { lastOutboundAt: inbound.occurredAt }
-          : { lastInboundAt: inbound.occurredAt }),
+        ...(isLatest
+          ? {
+              unreadCount:
+                inbound.fromSelf || inbound.historical
+                  ? existing.unreadCount
+                  : existing.unreadCount + 1,
+              lastMessagePreview: this.messagePreview(inbound),
+              lastMessageAt: inbound.occurredAt,
+              ...(inbound.fromSelf
+                ? { lastOutboundAt: inbound.occurredAt }
+                : { lastInboundAt: inbound.occurredAt }),
+            }
+          : {}),
         metadata: {
           ...existing.metadata,
+          ...inbound.conversationMetadata,
           ...(inbound.avatarUrl === undefined ? {} : { avatarUrl: inbound.avatarUrl }),
         },
         updatedAt: now,
@@ -239,13 +253,14 @@ export class ConversationProcessor {
         inbound.conversationType === "group"
           ? defaultAutomationModeForConversation("group")
           : defaultMode,
-      unreadCount: inbound.fromSelf ? 0 : 1,
+      unreadCount: inbound.fromSelf || inbound.historical ? 0 : 1,
       lastMessagePreview: this.messagePreview(inbound),
       lastMessageAt: inbound.occurredAt,
       ...(inbound.fromSelf
         ? { lastOutboundAt: inbound.occurredAt }
         : { lastInboundAt: inbound.occurredAt }),
       metadata: {
+        ...inbound.conversationMetadata,
         ...(inbound.avatarUrl === undefined ? {} : { avatarUrl: inbound.avatarUrl }),
       },
       createdAt: now,

@@ -129,7 +129,41 @@ function registerPrefix(
           !conversation.externalConversationId.endsWith("@lid") &&
           modeMatches(conversation.automationMode, query.mode),
       );
-      return (await container.hydrateConversationIdentities(filtered)).map(conversationPayload);
+      const hydrated = await container.hydrateConversationIdentities(filtered);
+      const chats = container.provider.listChats?.(query.connectionId) ?? [];
+      const chatOrder = new Map(chats.map((chat, index) => [chat.externalId, index]));
+      const chatByExternalId = new Map(chats.map((chat) => [chat.externalId, chat]));
+      const visible =
+        chats.length === 0
+          ? hydrated
+          : hydrated.filter((conversation) =>
+              chatByExternalId.has(
+                conversation.normalizedPhone ?? conversation.externalConversationId,
+              ),
+            );
+      return [...visible]
+        .sort((left, right) => {
+          const leftOrder =
+            chatOrder.get(left.normalizedPhone ?? left.externalConversationId) ??
+            Number.MAX_SAFE_INTEGER;
+          const rightOrder =
+            chatOrder.get(right.normalizedPhone ?? right.externalConversationId) ??
+            Number.MAX_SAFE_INTEGER;
+          return leftOrder - rightOrder;
+        })
+        .map((conversation) => {
+          const payload = conversationPayload(conversation);
+          const chat = chatByExternalId.get(
+            conversation.normalizedPhone ?? conversation.externalConversationId,
+          );
+          if (!chat) return payload;
+          return {
+            ...payload,
+            updatedAt: chat.lastActivityAt,
+            unread: chat.unreadCount,
+            pinned: chat.pinnedAt !== undefined,
+          };
+        });
     }),
   );
 

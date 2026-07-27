@@ -5,6 +5,7 @@ import type {
   Chat,
   ConnectionState,
   Contact,
+  LIDMapping,
   WAMessage,
 } from "@whiskeysockets/baileys";
 import { pino } from "pino";
@@ -18,10 +19,15 @@ export interface WhatsAppSocketEventMap {
   };
   readonly "contacts.upsert": Contact[];
   readonly "contacts.update": Partial<Contact>[];
+  readonly "chats.upsert": Chat[];
+  readonly "chats.update": Partial<Chat>[];
+  readonly "chats.delete": string[];
+  readonly "lid-mapping.update": LIDMapping;
   readonly "messaging-history.set": {
     readonly chats: Chat[];
     readonly contacts: Contact[];
     readonly messages: WAMessage[];
+    readonly lidPnMappings?: LIDMapping[];
   };
 }
 
@@ -45,6 +51,7 @@ export interface WhatsAppSocket {
   ): Promise<{ readonly key?: { readonly id?: string | null } } | undefined>;
   profilePictureUrl?(jid: string, type?: "preview" | "image"): Promise<string | undefined>;
   groupMetadata?(jid: string): Promise<{ readonly subject?: string }>;
+  getPhoneNumberForLid?(lid: string): Promise<string | undefined>;
   end(error: Error | undefined): void;
   logout(message?: string): Promise<void>;
 }
@@ -78,6 +85,8 @@ export const defaultWhatsAppSocketFactory: WhatsAppSocketFactory = ({ auth }) =>
     sendMessage: (jid, content) => socket.sendMessage(jid, content),
     profilePictureUrl: (jid, type) => socket.profilePictureUrl(jid, type),
     groupMetadata: (jid) => socket.groupMetadata(jid),
+    getPhoneNumberForLid: async (lid) =>
+      (await socket.signalRepository.lidMapping.getPNForLID(lid)) ?? undefined,
     end: (error) => socket.end(error),
     logout: (message) => socket.logout(message),
   };

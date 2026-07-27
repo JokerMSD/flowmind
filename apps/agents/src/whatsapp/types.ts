@@ -32,6 +32,7 @@ export interface Conversation {
   preview?: string;
   updatedAt?: string;
   unread?: number;
+  pinned?: boolean;
   mode: ConversationMode;
 }
 

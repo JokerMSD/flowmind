@@ -19,6 +19,7 @@ import { InvalidWhatsAppConnectionError, WhatsAppConnectionNotFoundError } from 
 import { WhatsAppSocketManager } from "./socket-manager.js";
 import type {
   WhatsAppConnectionSnapshot,
+  WhatsAppChat,
   WhatsAppContact,
   WhatsAppSocketManagerOptions,
 } from "./socket-manager.js";
@@ -131,6 +132,10 @@ export class WhatsAppWebProvider implements ChannelProvider {
 
   public listContacts(connectionId: string): readonly WhatsAppContact[] {
     return this.managers.get(connectionId)?.listContacts() ?? [];
+  }
+
+  public listChats(connectionId: string): readonly WhatsAppChat[] {
+    return this.managers.get(connectionId)?.listChats() ?? [];
   }
 
   public async resolveConversationIdentity(

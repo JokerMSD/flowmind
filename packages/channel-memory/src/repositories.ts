@@ -330,6 +330,9 @@ function sortConversations(
 ): readonly ChannelConversation[] {
   const direction = order === "desc" ? -1 : 1;
   return [...items].sort((left, right) => {
+    const leftPinned = typeof left.metadata.pinnedAt === "number" ? left.metadata.pinnedAt : 0;
+    const rightPinned = typeof right.metadata.pinnedAt === "number" ? right.metadata.pinnedAt : 0;
+    if (leftPinned !== rightPinned) return direction * (leftPinned - rightPinned);
     const leftDate = left.lastMessageAt ?? left.createdAt;
     const rightDate = right.lastMessageAt ?? right.createdAt;
     return direction * leftDate.localeCompare(rightDate);

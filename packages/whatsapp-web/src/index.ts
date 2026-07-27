@@ -25,6 +25,7 @@ export {
 export { WhatsAppSocketManager } from "./socket-manager.js";
 export type {
   WhatsAppConnectionSnapshot,
+  WhatsAppChat,
   WhatsAppContact,
   WhatsAppQrSnapshot,
   WhatsAppSocketManagerOptions,

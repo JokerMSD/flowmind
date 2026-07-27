@@ -66,6 +66,7 @@ function conversationsFrom(payload: unknown): Conversation[] {
       name: String(row.name ?? row.contactName ?? row.phone ?? "Contato"),
       type: row.type === "group" ? "group" : "private",
       unread: Number(row.unread ?? row.unreadCount ?? 0),
+      pinned: row.pinned === true,
       mode: asMode(row.automationMode ?? row.mode),
       ...(typeof row.phone === "string" ? { phone: row.phone } : {}),
       ...(typeof row.avatarUrl === "string" ? { avatarUrl: row.avatarUrl } : {}),

@@ -58,6 +58,9 @@ type CredsUpdate = WhatsAppSocketEventMap["creds.update"];
 type MessagesUpsert = WhatsAppSocketEventMap["messages.upsert"];
 type ContactsUpsert = WhatsAppSocketEventMap["contacts.upsert"];
 type ContactsUpdate = WhatsAppSocketEventMap["contacts.update"];
+type ChatsUpsert = WhatsAppSocketEventMap["chats.upsert"];
+type ChatsUpdate = WhatsAppSocketEventMap["chats.update"];
+type LidMappingUpdate = WhatsAppSocketEventMap["lid-mapping.update"];
 type MessagingHistorySet = WhatsAppSocketEventMap["messaging-history.set"];
 
 interface SocketBinding {
@@ -67,6 +70,10 @@ interface SocketBinding {
   readonly onMessagesUpsert: (event: MessagesUpsert) => void;
   readonly onContactsUpsert: (event: ContactsUpsert) => void;
   readonly onContactsUpdate: (event: ContactsUpdate) => void;
+  readonly onChatsUpsert: (event: ChatsUpsert) => void;
+  readonly onChatsUpdate: (event: ChatsUpdate) => void;
+  readonly onChatsDelete: (event: readonly string[]) => void;
+  readonly onLidMappingUpdate: (event: LidMappingUpdate) => void;
   readonly onMessagingHistorySet: (event: MessagingHistorySet) => void;
 }
 
@@ -80,6 +87,14 @@ export interface WhatsAppContact {
   readonly name: string;
   readonly phone?: string;
   readonly avatarUrl?: string;
+}
+
+export interface WhatsAppChat {
+  readonly externalId: string;
+  readonly lastActivityAt: string;
+  readonly pinnedAt?: number;
+  readonly archived: boolean;
+  readonly unreadCount: number;
 }
 
 function defaultDelay(milliseconds: number): Promise<void> {
@@ -135,8 +150,11 @@ export class WhatsAppSocketManager {
   private reconnectAttempts = 0;
   private generation = 0;
   private eventChain: Promise<void> = Promise.resolve();
+  private liveMessageChain: Promise<void> = Promise.resolve();
+  private historyChain: Promise<void> = Promise.resolve();
   private readonly identityCache = new Map<string, Promise<ConversationIdentity>>();
   private readonly contacts = new Map<string, WhatsAppContact>();
+  private readonly chats = new Map<string, WhatsAppChat>();
   private readonly contactPhonesByAlias = new Map<string, string>();
 
   public readonly connectionId: string;
@@ -272,8 +290,20 @@ export class WhatsAppSocketManager {
     };
   }
 
-  public onIdle(): Promise<void> {
-    return this.eventChain;
+  public async onIdle(): Promise<void> {
+    for (;;) {
+      const eventChain = this.eventChain;
+      const liveMessageChain = this.liveMessageChain;
+      const historyChain = this.historyChain;
+      await Promise.all([eventChain, liveMessageChain, historyChain]);
+      if (
+        eventChain === this.eventChain &&
+        liveMessageChain === this.liveMessageChain &&
+        historyChain === this.historyChain
+      ) {
+        return;
+      }
+    }
   }
 
   public listContacts(): readonly WhatsAppContact[] {
@@ -282,10 +312,34 @@ export class WhatsAppSocketManager {
     );
   }
 
+  public listChats(): readonly WhatsAppChat[] {
+    return [...this.chats.values()]
+      .filter((chat) => !chat.archived)
+      .sort(
+        (left, right) =>
+          (right.pinnedAt ?? 0) - (left.pinnedAt ?? 0) ||
+          right.lastActivityAt.localeCompare(left.lastActivityAt),
+      );
+  }
+
   private enqueueEvent(operation: () => Promise<void>): void {
     this.eventChain = this.eventChain.then(operation, operation).catch(async (error: unknown) => {
       this.lastError = errorMessage(error);
       await this.emitStatus("error", this.lastError);
+    });
+  }
+
+  private enqueueLiveMessage(operation: () => Promise<void>): void {
+    this.liveMessageChain = this.liveMessageChain
+      .then(operation, operation)
+      .catch((error: unknown) => {
+        this.lastError = errorMessage(error);
+      });
+  }
+
+  private enqueueHistory(operation: () => Promise<void>): void {
+    this.historyChain = this.historyChain.then(operation, operation).catch((error: unknown) => {
+      this.lastError = errorMessage(error);
     });
   }
 
@@ -313,7 +367,8 @@ export class WhatsAppSocketManager {
         });
       },
       onMessagesUpsert: (event) => {
-        this.enqueueEvent(async () => {
+        if (event.type !== "notify") return;
+        this.enqueueLiveMessage(async () => {
           if (this.socket !== socket) return;
           await this.handleMessagesUpsert(event);
         });
@@ -326,8 +381,31 @@ export class WhatsAppSocketManager {
         if (this.socket !== socket) return;
         for (const contact of event) this.cacheContact(contact);
       },
-      onMessagingHistorySet: (event) => {
+      onChatsUpsert: (event) => {
         this.enqueueEvent(async () => {
+          if (this.socket !== socket) return;
+          await Promise.all(event.map((chat) => this.cacheChat(chat)));
+        });
+      },
+      onChatsUpdate: (event) => {
+        this.enqueueEvent(async () => {
+          if (this.socket !== socket) return;
+          await Promise.all(event.map((chat) => this.cacheChat(chat)));
+        });
+      },
+      onChatsDelete: (event) => {
+        this.enqueueEvent(async () => {
+          if (this.socket !== socket) return;
+          for (const id of event) {
+            this.chats.delete(await this.resolveExternalId(normalizeWhatsAppJid(id)));
+          }
+        });
+      },
+      onLidMappingUpdate: (event) => {
+        this.cacheLidMapping(event);
+      },
+      onMessagingHistorySet: (event) => {
+        this.enqueueHistory(async () => {
           if (this.socket !== socket) return;
           await this.handleMessagingHistorySet(event);
         });
@@ -339,6 +417,10 @@ export class WhatsAppSocketManager {
     socket.ev.on("messages.upsert", binding.onMessagesUpsert);
     socket.ev.on("contacts.upsert", binding.onContactsUpsert);
     socket.ev.on("contacts.update", binding.onContactsUpdate);
+    socket.ev.on("chats.upsert", binding.onChatsUpsert);
+    socket.ev.on("chats.update", binding.onChatsUpdate);
+    socket.ev.on("chats.delete", binding.onChatsDelete);
+    socket.ev.on("lid-mapping.update", binding.onLidMappingUpdate);
     socket.ev.on("messaging-history.set", binding.onMessagingHistorySet);
   }
 
@@ -352,6 +434,10 @@ export class WhatsAppSocketManager {
       socket.ev.off("messages.upsert", binding.onMessagesUpsert);
       socket.ev.off("contacts.upsert", binding.onContactsUpsert);
       socket.ev.off("contacts.update", binding.onContactsUpdate);
+      socket.ev.off("chats.upsert", binding.onChatsUpsert);
+      socket.ev.off("chats.update", binding.onChatsUpdate);
+      socket.ev.off("chats.delete", binding.onChatsDelete);
+      socket.ev.off("lid-mapping.update", binding.onLidMappingUpdate);
       socket.ev.off("messaging-history.set", binding.onMessagingHistorySet);
     }
     this.binding = undefined;
@@ -446,6 +532,7 @@ export class WhatsAppSocketManager {
 
   private async handleMessagingHistorySet(event: MessagingHistorySet): Promise<void> {
     if (!this.listener) return;
+    for (const mapping of event.lidPnMappings ?? []) this.cacheLidMapping(mapping);
     const contacts = new Map<string, MessagingHistorySet["contacts"][number]>();
     for (const contact of event.contacts) {
       for (const id of [contact.id, contact.lid, contact.phoneNumber]) {
@@ -453,6 +540,7 @@ export class WhatsAppSocketManager {
       }
       this.cacheContact(contact);
     }
+    await Promise.all(event.chats.map((chat) => this.cacheChat(chat)));
 
     const latestByChat = new Map<string, MessagingHistorySet["messages"][number]>();
     for (const message of event.messages) {
@@ -477,8 +565,50 @@ export class WhatsAppSocketManager {
           ...(avatarUrl === undefined ? {} : { avatarUrl }),
         },
         false,
+        this.chatMetadataFor(message.key.remoteJid),
       );
     }
+  }
+
+  private cacheLidMapping(mapping: LidMappingUpdate): void {
+    const phone = normalizeWhatsAppJid(mapping.pn);
+    if (!/^\d{8,15}$/.test(phone)) return;
+    for (const alias of [mapping.lid, normalizeWhatsAppJid(mapping.lid)]) {
+      this.contactPhonesByAlias.set(alias, phone);
+    }
+  }
+
+  private async cacheChat(chat: Partial<ChatsUpsert[number]>): Promise<void> {
+    if (!chat.id) return;
+    const externalId = await this.resolveExternalId(normalizeWhatsAppJid(chat.id));
+    const previous = this.chats.get(externalId);
+    const timestamp = this.timestampValue(chat.conversationTimestamp);
+    const pinnedAt =
+      chat.pinned === undefined || chat.pinned === null
+        ? previous?.pinnedAt
+        : chat.pinned > 0
+          ? chat.pinned
+          : undefined;
+    this.chats.set(externalId, {
+      externalId,
+      lastActivityAt:
+        timestamp > 0
+          ? new Date(timestamp * 1_000).toISOString()
+          : (previous?.lastActivityAt ?? new Date(0).toISOString()),
+      ...(pinnedAt === undefined ? {} : { pinnedAt }),
+      archived: chat.archived ?? previous?.archived ?? false,
+      unreadCount: chat.unreadCount ?? previous?.unreadCount ?? 0,
+    });
+  }
+
+  private chatMetadataFor(jid: string | null | undefined): Readonly<Record<string, unknown>> {
+    if (!jid) return {};
+    const externalId =
+      this.contactPhonesByAlias.get(jid) ??
+      this.contactPhonesByAlias.get(normalizeWhatsAppJid(jid)) ??
+      normalizeWhatsAppJid(jid);
+    const chat = this.chats.get(externalId);
+    return chat?.pinnedAt === undefined ? {} : { pinnedAt: chat.pinnedAt };
   }
 
   private cacheContact(contact: Partial<MessagingHistorySet["contacts"][number]>): void {
@@ -513,16 +643,18 @@ export class WhatsAppSocketManager {
     raw: MessagingHistorySet["messages"][number],
     historyIdentity: ConversationIdentity = {},
     resolveRemoteIdentity = true,
+    conversationMetadata: Readonly<Record<string, unknown>> = {},
   ): Promise<void> {
     if (!this.listener) return;
     const normalized = normalizeInboundMessage(this.connectionId, raw);
     if (!normalized) return;
-    const conversationId =
-      this.contactPhonesByAlias.get(normalized.conversationAddress.externalId) ??
-      normalized.conversationAddress.externalId;
-    const senderId =
-      this.contactPhonesByAlias.get(normalized.senderAddress.externalId) ??
-      normalized.senderAddress.externalId;
+    const conversationId = await this.resolveExternalId(normalized.conversationAddress.externalId);
+    const senderId = await this.resolveExternalId(normalized.senderAddress.externalId);
+    this.updateChatFromMessage(
+      conversationId,
+      normalized.occurredAt,
+      resolveRemoteIdentity && raw.key.fromMe !== true,
+    );
     const addressed: InboundMessage = {
       ...normalized,
       conversationAddress: {
@@ -533,6 +665,8 @@ export class WhatsAppSocketManager {
         ...normalized.senderAddress,
         externalId: senderId,
       },
+      ...(resolveRemoteIdentity ? {} : { historical: true }),
+      ...(Object.keys(conversationMetadata).length === 0 ? {} : { conversationMetadata }),
     };
     const contact = this.contacts.get(conversationId);
     const contactName =
@@ -567,6 +701,52 @@ export class WhatsAppSocketManager {
       return timestamp.toNumber();
     }
     return 0;
+  }
+
+  private updateChatFromMessage(
+    externalId: string,
+    occurredAt: string,
+    incrementsUnread: boolean,
+  ): void {
+    const previous = this.chats.get(externalId);
+    if (previous && previous.lastActivityAt > occurredAt) return;
+    this.chats.set(externalId, {
+      externalId,
+      lastActivityAt: occurredAt,
+      ...(previous?.pinnedAt === undefined ? {} : { pinnedAt: previous.pinnedAt }),
+      archived: false,
+      unreadCount: incrementsUnread ? (previous?.unreadCount ?? 0) + 1 : 0,
+    });
+  }
+
+  private timestampValue(value: unknown): number {
+    if (typeof value === "number") return value;
+    if (value && typeof value === "object" && "toNumber" in value) {
+      const toNumber = (value as { toNumber: () => number }).toNumber;
+      return toNumber.call(value);
+    }
+    return 0;
+  }
+
+  private async resolveExternalId(externalId: string): Promise<string> {
+    const trimmed = externalId.trim();
+    if (/^\d{8,15}$/.test(trimmed) || trimmed.endsWith("@g.us")) return trimmed;
+    const cached =
+      this.contactPhonesByAlias.get(trimmed) ??
+      this.contactPhonesByAlias.get(normalizeWhatsAppJid(trimmed));
+    if (cached) return cached;
+    const normalized = normalizeWhatsAppJid(trimmed);
+    if (!normalized.endsWith("@lid") || !this.socket?.getPhoneNumberForLid) return normalized;
+    const phoneJid = await settleWithin(
+      this.socket.getPhoneNumberForLid(normalized),
+      IDENTITY_LOOKUP_TIMEOUT_MS,
+    );
+    if (!phoneJid) return normalized;
+    const phone = normalizeWhatsAppJid(phoneJid);
+    if (!/^\d{8,15}$/.test(phone)) return normalized;
+    this.contactPhonesByAlias.set(trimmed, phone);
+    this.contactPhonesByAlias.set(normalized, phone);
+    return phone;
   }
 
   public async resolveConversationIdentity(
