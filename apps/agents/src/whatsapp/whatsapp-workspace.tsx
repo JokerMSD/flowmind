@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { whatsAppApi } from "./whatsapp-api";
 import { toQrDataUrl } from "./qrcode";
@@ -50,6 +50,29 @@ function readableTime(value?: string): string | null {
     : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function messageDateKey(value?: string): string {
+  if (!value) return "unknown";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleDateString("en-CA");
+}
+
+function readableDate(value?: string): string {
+  if (!value) return "Data desconhecida";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data desconhecida";
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const key = date.toLocaleDateString("en-CA");
+  if (key === today.toLocaleDateString("en-CA")) return "Hoje";
+  if (key === yesterday.toLocaleDateString("en-CA")) return "Ontem";
+  return date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
+}
+
 function Avatar({
   identity,
   size = "medium",
@@ -91,6 +114,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [qrImage, setQrImage] = useState<string | null>(null);
   const selectedId = useRef<string | null>(null);
+  const messagesEnd = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     selectedId.current = selected?.id ?? null;
@@ -166,6 +190,10 @@ export function WhatsAppWorkspace(): React.ReactElement {
   useEffect(() => {
     void toQrDataUrl(connection.qr).then(setQrImage);
   }, [connection.qr]);
+
+  useEffect(() => {
+    messagesEnd.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
 
   const run = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true);
@@ -514,19 +542,38 @@ export function WhatsAppWorkspace(): React.ReactElement {
                 </div>
               </header>
               <div className="wa-messages">
-                {messages.map((message) => (
-                  <div key={message.id} className={`wa-message ${message.direction}`}>
-                    <p>{message.body}</p>
-                    <small>
-                      {message.sender ??
-                        (message.direction === "outgoing" ? "Voce" : selected.name)}
-                      {readableTime(message.sentAt) ? ` - ${readableTime(message.sentAt)}` : ""}
-                    </small>
-                  </div>
-                ))}
+                {messages.map((message, index) => {
+                  const previous = messages[index - 1];
+                  const startsDay =
+                    !previous || messageDateKey(previous.sentAt) !== messageDateKey(message.sentAt);
+                  const showSender =
+                    selected.type === "group" &&
+                    message.direction === "incoming" &&
+                    Boolean(message.sender);
+                  return (
+                    <Fragment key={message.id}>
+                      {startsDay ? (
+                        <div className="wa-day-separator">{readableDate(message.sentAt)}</div>
+                      ) : null}
+                      <div className={`wa-message ${message.direction}`}>
+                        {showSender ? <strong>{message.sender}</strong> : null}
+                        <div className="wa-message-content">
+                          <p>{message.body.trim() || "Midia nao disponivel"}</p>
+                          <span className="wa-message-meta">
+                            {readableTime(message.sentAt) ?? ""}
+                            {message.direction === "outgoing" ? (
+                              <i aria-label="Mensagem enviada" />
+                            ) : null}
+                          </span>
+                        </div>
+                      </div>
+                    </Fragment>
+                  );
+                })}
                 {!messages.length ? (
                   <p className="wa-empty">Sem mensagens nesta conversa.</p>
                 ) : null}
+                <div ref={messagesEnd} />
               </div>
               <form className="wa-compose" onSubmit={send}>
                 <textarea
