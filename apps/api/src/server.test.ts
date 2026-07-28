@@ -556,6 +556,17 @@ test("WhatsApp reminder delivery resolves target/provider and persists delivered
     assert.equal(saved?.status, "delivered");
     assert.equal(saved?.deliveredAt, "2026-07-26T12:03:00.000Z");
 
+    const laterOccurrence: ReminderOccurrence = {
+      ...occurrence,
+      id: "occurrence-whatsapp-later",
+      scheduledFor: "2026-07-27T12:02:00.000Z",
+      detectedAt: "2026-07-27T12:02:00.000Z",
+    };
+    await occurrences.save(laterOccurrence);
+    await delivery.deliver(laterOccurrence, reminder);
+    assert.equal(context.provider.sent.length, 3);
+    assert.equal(context.provider.sent.at(-1)?.content, reminder.message);
+
     const settings = await context.memory.settings.get();
     await context.memory.settings.save({ ...settings, pauseAll: true });
     await assert.rejects(
