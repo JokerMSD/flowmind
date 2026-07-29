@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
-const pidPath = resolve(process.cwd(), ".flowmind", "dev.pid");
+const projectKey = createHash("sha256").update(resolve(process.cwd())).digest("hex").slice(0, 16);
+const pidPath = resolve(tmpdir(), "flowmind-local", `${projectKey}.pid`);
 
 function readPid() {
   if (!existsSync(pidPath)) return undefined;

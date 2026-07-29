@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { WHATSAPP_CHANNEL_ID } from "@flowmind/channel-core";
 import { DefaultNodeRegistry, Engine } from "@flowmind/engine";
 import { registerCoreNodes } from "@flowmind/node-core";
-import { registerAdminAuthRoutes } from "./admin/index.js";
+import { createAdminAuthHook, registerAdminAuthRoutes } from "./admin/index.js";
 import { createAgentContainer } from "./agents/container.js";
 import { registerAgentErrorHandler } from "./agents/error-handler.js";
 import { registerAgentRoutes } from "./agents/routes.js";
@@ -70,7 +70,10 @@ export function createServer(
     const account = await adminAuth.authenticate(request);
     return account ? { authenticated: true, user: account } : { authenticated: false };
   });
-  registerAgentRoutes(server, agents);
+  void server.register(async (protectedServer) => {
+    protectedServer.addHook("onRequest", createAdminAuthHook(adminAuth));
+    registerAgentRoutes(protectedServer, agents);
+  });
   registerWhatsAppRoutes(server, whatsapp, adminAuth);
   registerAgentErrorHandler(server);
   server.addHook("onReady", async () => {

@@ -57,6 +57,11 @@ class FakeSocket implements WhatsAppSocket {
   public readonly sent: { jid: string; content: { text: string } }[] = [];
   public readonly ended: (Error | undefined)[] = [];
   public readonly profilePictureRequests: string[] = [];
+  public readonly historyRequests: {
+    count: number;
+    key: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null };
+    timestamp: number;
+  }[] = [];
   public logoutCalls = 0;
   public user: { id: string } | undefined;
   public sendId: string | null = "sent-1";
@@ -72,6 +77,19 @@ class FakeSocket implements WhatsAppSocket {
   public async profilePictureUrl(jid: string): Promise<string | undefined> {
     this.profilePictureRequests.push(jid);
     return undefined;
+  }
+
+  public async fetchMessageHistory(
+    count: number,
+    key: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null },
+    timestamp: number,
+  ): Promise<string> {
+    this.historyRequests.push({ count, key, timestamp });
+    return "history-request-1";
+  }
+
+  public async downloadMedia(): Promise<Buffer> {
+    return Buffer.from("media");
   }
 
   public end(error: Error | undefined): void {
@@ -286,17 +304,27 @@ test("restores persisted auth, normalizes inbound events and sends text", async 
       {
         key: { id: "history", remoteJid: "5511888888888@s.whatsapp.net" },
         message: { conversation: "Historico" },
+        messageTimestamp: 1_721_996_300,
       } as WAMessage,
     ],
   });
   await provider.onIdle("whatsapp-personal");
 
-  assert.equal(events.messages.length, 2);
+  assert.equal(events.messages.length, 3);
   assert.equal(events.messages[0]?.fromSelf, true);
   assert.equal(events.messages[0]?.unsupported, false);
   assert.equal(events.messages[1]?.conversationType, "group");
   assert.equal(events.messages[1]?.senderAddress.externalId, "5511777777777");
   assert.equal(events.messages[1]?.unsupported, true);
+  assert.equal(events.messages[2]?.providerMessageId, "history");
+  assert.equal(events.messages[2]?.historical, true);
+  assert.deepEqual(provider.getMediaInfo("whatsapp-personal", "media-1"), {
+    kind: "image",
+    mimeType: "image/jpeg",
+  });
+  const downloaded = await provider.downloadMedia("whatsapp-personal", "media-1");
+  assert.equal(downloaded.data.toString(), "media");
+  assert.equal(downloaded.info.kind, "image");
 
   const sent = await provider.send({
     connectionId: "whatsapp-personal",
@@ -317,9 +345,61 @@ test("restores persisted auth, normalizes inbound events and sends text", async 
     providerMessageId: "sent-1",
     sentAt: BASE_TIME,
   });
+
+  const historyRequestId = await provider.fetchMessageHistory(
+    "whatsapp-personal",
+    "5511888888888",
+    {
+      providerMessageId: "oldest-1",
+      occurredAt: BASE_TIME,
+      fromMe: false,
+    },
+    50,
+  );
+  assert.equal(historyRequestId, "history-request-1");
+  assert.deepEqual(socket.historyRequests, [
+    {
+      count: 50,
+      key: {
+        remoteJid: "5511888888888@s.whatsapp.net",
+        id: "oldest-1",
+        fromMe: false,
+      },
+      timestamp: Math.floor(new Date(BASE_TIME).getTime() / 1_000),
+    },
+  ]);
+
+  const allHistory = provider.fetchMessageHistories(
+    "whatsapp-personal",
+    [
+      {
+        externalId: "5511777777777",
+        providerMessageId: "oldest-2",
+        occurredAt: BASE_TIME,
+        fromMe: true,
+      },
+      {
+        externalId: "120363000000000000@g.us",
+        providerMessageId: "oldest-3",
+        occurredAt: BASE_TIME,
+        fromMe: false,
+      },
+    ],
+    50,
+  );
+  assert.deepEqual(allHistory, {
+    requestedConversations: 2,
+    countPerConversation: 50,
+  });
+  assert.throws(
+    () => provider.fetchMessageHistories("whatsapp-personal", [], 50),
+    /already requested/,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.equal(socket.historyRequests.length, 3);
 });
 
-test("history sync imports only the latest message from each private chat", async (t) => {
+test("history sync imports every message in chronological order", async (t) => {
   const root = await storage();
   t.after(() => rm(root, { recursive: true, force: true }));
   const factory = new FakeSocketFactory();
@@ -334,6 +414,8 @@ test("history sync imports only the latest message from each private chat", asyn
   assert.ok(socket);
   socket.ev.emit("messaging-history.set", {
     chats: [],
+    isLatest: false,
+    progress: 60,
     contacts: [
       {
         id: "123456789@lid",
@@ -361,12 +443,46 @@ test("history sync imports only the latest message from each private chat", asyn
   });
   await provider.onIdle("whatsapp-personal");
 
-  assert.equal(events.messages.length, 1);
-  assert.equal(events.messages[0]?.providerMessageId, "latest");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncStatus, "syncing");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncProgress, 60);
+  socket.ev.emit("messaging-history.status", {
+    status: "paused",
+    explicit: false,
+  });
+  await provider.onIdle("whatsapp-personal");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncStatus, "paused");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncProgress, 60);
+  socket.ev.emit("messaging-history.set", {
+    chats: [],
+    contacts: [],
+    messages: [],
+    isLatest: false,
+    progress: 60,
+  });
+  await provider.onIdle("whatsapp-personal");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncStatus, "paused");
+  assert.equal(events.messages.length, 2);
+  assert.deepEqual(
+    events.messages.map((message) => message.providerMessageId),
+    ["old", "latest"],
+  );
+  assert.ok(events.messages.every((message) => message.historical));
+  assert.deepEqual(
+    provider.listChats("whatsapp-personal"),
+    [],
+    "historical messages must not create inbox chats",
+  );
   assert.equal(events.messages[0]?.conversationAddress.externalId, "5511888888888");
   assert.equal(events.messages[0]?.displayName, "Maria");
   assert.equal(events.messages[0]?.avatarUrl, "https://example.com/maria.jpg");
   assert.equal(socket.profilePictureRequests.length, 0);
+  socket.ev.emit("messaging-history.status", {
+    status: "complete",
+    explicit: true,
+  });
+  await provider.onIdle("whatsapp-personal");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncStatus, "complete");
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.historySyncProgress, 100);
   assert.deepEqual(provider.listContacts("whatsapp-personal"), [
     {
       id: "5511888888888",
@@ -384,7 +500,11 @@ test("history sync imports only the latest message from each private chat", asyn
     },
   ]);
   await provider.onIdle("whatsapp-personal");
-  assert.equal(provider.listContacts("whatsapp-personal")[0]?.name, "Maria Silva");
+  assert.equal(
+    provider.listContacts("whatsapp-personal")[0]?.name,
+    "Maria",
+    "the saved address-book name must take precedence over the public push name",
+  );
   socket.ev.emit("messages.upsert", {
     type: "notify",
     messages: [
@@ -398,11 +518,11 @@ test("history sync imports only the latest message from each private chat", asyn
   await provider.onIdle("whatsapp-personal");
   assert.equal(
     events.messages.length,
-    2,
+    3,
     JSON.stringify(provider.getSnapshot("whatsapp-personal")),
   );
-  assert.equal(events.messages[1]?.displayName, "Maria Silva");
-  assert.equal(events.messages[1]?.conversationAddress.externalId, "5511888888888");
+  assert.equal(events.messages[2]?.displayName, "Maria");
+  assert.equal(events.messages[2]?.conversationAddress.externalId, "5511888888888");
 });
 
 test("reconnects with bounded backoff and resets after an open socket", async (t) => {

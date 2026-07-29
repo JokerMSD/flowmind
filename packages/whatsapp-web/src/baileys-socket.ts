@@ -1,4 +1,8 @@
-import makeWASocket, { Browsers } from "@whiskeysockets/baileys";
+import makeWASocket, {
+  Browsers,
+  downloadMediaMessage,
+  fetchLatestBaileysVersion,
+} from "@whiskeysockets/baileys";
 import type {
   AuthenticationCreds,
   AuthenticationState,
@@ -7,6 +11,8 @@ import type {
   Contact,
   LIDMapping,
   WAMessage,
+  WAMessageKey,
+  WAVersion,
 } from "@whiskeysockets/baileys";
 import { pino } from "pino";
 
@@ -28,6 +34,12 @@ export interface WhatsAppSocketEventMap {
     readonly contacts: Contact[];
     readonly messages: WAMessage[];
     readonly lidPnMappings?: LIDMapping[];
+    readonly isLatest?: boolean;
+    readonly progress?: number | null;
+  };
+  readonly "messaging-history.status": {
+    readonly status: "complete" | "paused";
+    readonly explicit: boolean;
   };
 }
 
@@ -49,6 +61,12 @@ export interface WhatsAppSocket {
     jid: string,
     content: { readonly text: string },
   ): Promise<{ readonly key?: { readonly id?: string | null } } | undefined>;
+  fetchMessageHistory?(
+    count: number,
+    oldestMessageKey: WAMessageKey,
+    oldestMessageTimestamp: number,
+  ): Promise<string>;
+  downloadMedia?(message: WAMessage): Promise<Buffer>;
   profilePictureUrl?(jid: string, type?: "preview" | "image"): Promise<string | undefined>;
   groupMetadata?(jid: string): Promise<{ readonly subject?: string }>;
   getPhoneNumberForLid?(lid: string): Promise<string | undefined>;
@@ -65,10 +83,35 @@ export type WhatsAppSocketFactory = (
 ) => WhatsAppSocket | Promise<WhatsAppSocket>;
 
 const silentLogger = pino({ level: "silent" });
+const VERSION_LOOKUP_TIMEOUT_MS = 5_000;
+let latestVersion: Promise<WAVersion | undefined> | undefined;
 
-export const defaultWhatsAppSocketFactory: WhatsAppSocketFactory = ({ auth }) => {
+function resolveWhatsAppVersion(): Promise<WAVersion | undefined> {
+  latestVersion ??= lookupWhatsAppVersion();
+  return latestVersion;
+}
+
+async function lookupWhatsAppVersion(): Promise<WAVersion | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fetchLatestBaileysVersion().then((result) => result.version),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), VERSION_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export const defaultWhatsAppSocketFactory: WhatsAppSocketFactory = async ({ auth }) => {
+  const version = await resolveWhatsAppVersion();
   const socket = makeWASocket({
     auth,
+    ...(version === undefined ? {} : { version }),
     browser: Browsers.ubuntu("Desktop"),
     logger: silentLogger,
     printQRInTerminal: false,
@@ -83,6 +126,13 @@ export const defaultWhatsAppSocketFactory: WhatsAppSocketFactory = ({ auth }) =>
       return socket.user ? { id: socket.user.id } : undefined;
     },
     sendMessage: (jid, content) => socket.sendMessage(jid, content),
+    fetchMessageHistory: (count, oldestMessageKey, oldestMessageTimestamp) =>
+      socket.fetchMessageHistory(count, oldestMessageKey, oldestMessageTimestamp),
+    downloadMedia: (message) =>
+      downloadMediaMessage(message, "buffer", {}, {
+        logger: silentLogger,
+        reuploadRequest: socket.updateMediaMessage,
+      }),
     profilePictureUrl: (jid, type) => socket.profilePictureUrl(jid, type),
     groupMetadata: (jid) => socket.groupMetadata(jid),
     getPhoneNumberForLid: async (lid) =>

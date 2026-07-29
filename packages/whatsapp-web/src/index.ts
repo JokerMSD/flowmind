@@ -11,6 +11,7 @@ export type {
 export {
   AuthStateCorruptionError,
   AuthStatePersistenceError,
+  ChatIndexCorruptionError,
   InvalidWhatsAppConnectionError,
   WhatsAppConnectionNotFoundError,
   WhatsAppConnectionUnavailableError,
@@ -27,6 +28,8 @@ export type {
   WhatsAppConnectionSnapshot,
   WhatsAppChat,
   WhatsAppContact,
+  WhatsAppHistoryCursor,
+  WhatsAppMediaInfo,
   WhatsAppQrSnapshot,
   WhatsAppSocketManagerOptions,
 } from "./socket-manager.js";

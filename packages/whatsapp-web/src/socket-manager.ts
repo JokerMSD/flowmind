@@ -3,7 +3,7 @@ import type {
   ChannelProviderListener,
   InboundMessage,
 } from "@flowmind/channel-core";
-import { DisconnectReason } from "@whiskeysockets/baileys";
+import { DisconnectReason, normalizeMessageContent } from "@whiskeysockets/baileys";
 import type { AuthenticationCreds, ConnectionState } from "@whiskeysockets/baileys";
 import { AuthStateRepository } from "./auth-state-repository.js";
 import type {
@@ -12,6 +12,7 @@ import type {
   WhatsAppSocketEventMap,
 } from "./baileys-socket.js";
 import { defaultWhatsAppSocketFactory } from "./baileys-socket.js";
+import { ChatIndexRepository } from "./chat-index-repository.js";
 import {
   WhatsAppConnectionUnavailableError,
   WhatsAppSendError,
@@ -26,6 +27,8 @@ import {
 const DEFAULT_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const DEFAULT_QR_TTL_MS = 60_000;
 const IDENTITY_LOOKUP_TIMEOUT_MS = 1_500;
+const HISTORY_REQUEST_CONCURRENCY = 8;
+const HISTORY_BATCH_DELAY_MS = 50;
 
 export interface WhatsAppQrSnapshot {
   readonly value: string;
@@ -38,11 +41,14 @@ export interface WhatsAppConnectionSnapshot {
   readonly qr?: WhatsAppQrSnapshot;
   readonly address?: string;
   readonly error?: string;
+  readonly historySyncStatus: "idle" | "syncing" | "complete" | "paused";
+  readonly historySyncProgress?: number;
 }
 
 export interface WhatsAppSocketManagerOptions {
   readonly connectionId: string;
   readonly authState: AuthStateRepository;
+  readonly chatIndex?: ChatIndexRepository;
   readonly socketFactory?: WhatsAppSocketFactory;
   readonly qrTtlMs?: number;
   readonly reconnectDelaysMs?: readonly number[];
@@ -62,6 +68,7 @@ type ChatsUpsert = WhatsAppSocketEventMap["chats.upsert"];
 type ChatsUpdate = WhatsAppSocketEventMap["chats.update"];
 type LidMappingUpdate = WhatsAppSocketEventMap["lid-mapping.update"];
 type MessagingHistorySet = WhatsAppSocketEventMap["messaging-history.set"];
+type MessagingHistoryStatus = WhatsAppSocketEventMap["messaging-history.status"];
 
 interface SocketBinding {
   readonly socket: WhatsAppSocket;
@@ -75,11 +82,25 @@ interface SocketBinding {
   readonly onChatsDelete: (event: readonly string[]) => void;
   readonly onLidMappingUpdate: (event: LidMappingUpdate) => void;
   readonly onMessagingHistorySet: (event: MessagingHistorySet) => void;
+  readonly onMessagingHistoryStatus: (event: MessagingHistoryStatus) => void;
 }
 
 interface ConversationIdentity {
   readonly displayName?: string;
   readonly avatarUrl?: string;
+}
+
+export interface WhatsAppHistoryCursor {
+  readonly externalId: string;
+  readonly providerMessageId: string;
+  readonly occurredAt: string;
+  readonly fromMe: boolean;
+}
+
+export interface WhatsAppMediaInfo {
+  readonly kind: "image" | "video" | "audio" | "document" | "sticker";
+  readonly mimeType: string;
+  readonly fileName?: string;
 }
 
 export interface WhatsAppContact {
@@ -119,6 +140,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error ?? "Unknown WhatsApp error");
 }
 
+function disconnectMessage(error: unknown): string {
+  const code = statusCode(error);
+  const message = errorMessage(error);
+  return code === undefined ? message : `${message} (codigo ${code})`;
+}
+
 function isAuthenticationFailure(code: number | undefined): boolean {
   return (
     code === DisconnectReason.badSession ||
@@ -153,6 +180,10 @@ export class WhatsAppSocketManager {
   private eventChain: Promise<void> = Promise.resolve();
   private liveMessageChain: Promise<void> = Promise.resolve();
   private historyChain: Promise<void> = Promise.resolve();
+  private historyBackfillRequested = false;
+  private historySyncStatus: WhatsAppConnectionSnapshot["historySyncStatus"] = "idle";
+  private historySyncProgress: number | undefined;
+  private readonly mediaMessages = new Map<string, MessagingHistorySet["messages"][number]>();
   private readonly identityCache = new Map<string, Promise<ConversationIdentity>>();
   private readonly contacts = new Map<string, WhatsAppContact>();
   private readonly chats = new Map<string, WhatsAppChat>();
@@ -160,10 +191,12 @@ export class WhatsAppSocketManager {
 
   public readonly connectionId: string;
   public readonly authState: AuthStateRepository;
+  private readonly chatIndex: ChatIndexRepository;
 
   public constructor(options: WhatsAppSocketManagerOptions) {
     this.connectionId = options.connectionId;
     this.authState = options.authState;
+    this.chatIndex = options.chatIndex ?? new ChatIndexRepository(options.authState.directory);
     this.socketFactory = options.socketFactory ?? defaultWhatsAppSocketFactory;
     this.qrTtlMs = options.qrTtlMs ?? DEFAULT_QR_TTL_MS;
     this.reconnectDelaysMs =
@@ -187,6 +220,11 @@ export class WhatsAppSocketManager {
     }
     if (this.desired) return;
     this.listener = listener;
+    for (const chat of await this.chatIndex.load()) this.chats.set(chat.externalId, chat);
+    if (this.chats.size > 0) {
+      this.historySyncStatus = "complete";
+      this.historySyncProgress = 100;
+    }
     this.desired = true;
     this.reconnectAttempts = 0;
     this.generation += 1;
@@ -245,6 +283,8 @@ export class WhatsAppSocketManager {
       await socket?.logout("Flowmind logout");
     } finally {
       await this.authState.logout();
+      this.chats.clear();
+      await this.persistChats();
       this.address = undefined;
       this.lastError = undefined;
       await this.emitStatus("logged_out");
@@ -280,6 +320,97 @@ export class WhatsAppSocketManager {
     }
   }
 
+  public async fetchMessageHistory(
+    externalId: string,
+    cursor: {
+      readonly providerMessageId: string;
+      readonly occurredAt: string;
+      readonly fromMe: boolean;
+    },
+    count: number,
+  ): Promise<string> {
+    if (this.status !== "connected" || !this.socket) {
+      throw new WhatsAppConnectionUnavailableError(this.connectionId);
+    }
+    if (!this.socket.fetchMessageHistory) {
+      throw new WhatsAppWebError("This WhatsApp socket does not support history requests");
+    }
+    const timestamp = Math.floor(new Date(cursor.occurredAt).getTime() / 1_000);
+    if (!Number.isFinite(timestamp)) {
+      throw new WhatsAppWebError("Invalid WhatsApp history cursor timestamp");
+    }
+    return this.socket.fetchMessageHistory(
+      count,
+      {
+        remoteJid: toWhatsAppJid(externalId),
+        id: cursor.providerMessageId,
+        fromMe: cursor.fromMe,
+      },
+      timestamp,
+    );
+  }
+
+  public fetchMessageHistories(
+    cursors: readonly WhatsAppHistoryCursor[],
+    count: number,
+  ): { readonly requestedConversations: number; readonly countPerConversation: number } {
+    if (this.historyBackfillRequested) {
+      throw new WhatsAppWebError("WhatsApp history was already requested in this session");
+    }
+    if (this.status !== "connected" || !this.socket) {
+      throw new WhatsAppConnectionUnavailableError(this.connectionId);
+    }
+    if (!this.socket.fetchMessageHistory) {
+      throw new WhatsAppWebError("This WhatsApp socket does not support history requests");
+    }
+    this.historyBackfillRequested = true;
+    const socket = this.socket;
+    void (async () => {
+      for (let index = 0; index < cursors.length; index += HISTORY_REQUEST_CONCURRENCY) {
+        const batch = cursors.slice(index, index + HISTORY_REQUEST_CONCURRENCY);
+        await Promise.allSettled(
+          batch.map(async (cursor) => {
+            const timestamp = Math.floor(new Date(cursor.occurredAt).getTime() / 1_000);
+            if (!Number.isFinite(timestamp)) return;
+            await socket.fetchMessageHistory?.(
+              count,
+              {
+                remoteJid: toWhatsAppJid(cursor.externalId),
+                id: cursor.providerMessageId,
+                fromMe: cursor.fromMe,
+              },
+              timestamp,
+            );
+          }),
+        );
+        if (index + HISTORY_REQUEST_CONCURRENCY < cursors.length) {
+          await this.delay(HISTORY_BATCH_DELAY_MS);
+        }
+      }
+    })();
+    return {
+      requestedConversations: cursors.length,
+      countPerConversation: count,
+    };
+  }
+
+  public getMediaInfo(providerMessageId: string): WhatsAppMediaInfo | undefined {
+    const raw = this.mediaMessages.get(providerMessageId);
+    return raw ? this.mediaInfo(raw) : undefined;
+  }
+
+  public async downloadMedia(providerMessageId: string): Promise<{
+    readonly data: Buffer;
+    readonly info: WhatsAppMediaInfo;
+  }> {
+    const raw = this.mediaMessages.get(providerMessageId);
+    const info = raw ? this.mediaInfo(raw) : undefined;
+    if (!raw || !info || !this.socket?.downloadMedia) {
+      throw new WhatsAppWebError("WhatsApp media is not available in this session");
+    }
+    return { data: await this.socket.downloadMedia(raw), info };
+  }
+
   public getSnapshot(): WhatsAppConnectionSnapshot {
     this.pruneExpiredQr();
     return {
@@ -288,6 +419,10 @@ export class WhatsAppSocketManager {
       ...(this.qr === undefined ? {} : { qr: this.qr }),
       ...(this.address === undefined ? {} : { address: this.address }),
       ...(this.lastError === undefined ? {} : { error: this.lastError }),
+      historySyncStatus: this.historySyncStatus,
+      ...(this.historySyncProgress === undefined
+        ? {}
+        : { historySyncProgress: this.historySyncProgress }),
     };
   }
 
@@ -308,9 +443,9 @@ export class WhatsAppSocketManager {
   }
 
   public listContacts(): readonly WhatsAppContact[] {
-    return [...this.contacts.values()].sort((left, right) =>
-      left.name.localeCompare(right.name, "pt-BR"),
-    );
+    return [...this.contacts.values()]
+      .filter((contact) => /^\d{8,15}$/.test(contact.phone ?? contact.id))
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
   }
 
   public listChats(): readonly WhatsAppChat[] {
@@ -368,7 +503,6 @@ export class WhatsAppSocketManager {
         });
       },
       onMessagesUpsert: (event) => {
-        if (event.type !== "notify") return;
         this.enqueueLiveMessage(async () => {
           if (this.socket !== socket) return;
           await this.handleMessagesUpsert(event);
@@ -386,12 +520,14 @@ export class WhatsAppSocketManager {
         this.enqueueEvent(async () => {
           if (this.socket !== socket) return;
           await Promise.all(event.map((chat) => this.cacheChat(chat)));
+          await this.persistChats();
         });
       },
       onChatsUpdate: (event) => {
         this.enqueueEvent(async () => {
           if (this.socket !== socket) return;
           await Promise.all(event.map((chat) => this.cacheChat(chat)));
+          await this.persistChats();
         });
       },
       onChatsDelete: (event) => {
@@ -400,6 +536,7 @@ export class WhatsAppSocketManager {
           for (const id of event) {
             this.chats.delete(await this.resolveExternalId(normalizeWhatsAppJid(id)));
           }
+          await this.persistChats();
         });
       },
       onLidMappingUpdate: (event) => {
@@ -410,6 +547,11 @@ export class WhatsAppSocketManager {
           if (this.socket !== socket) return;
           await this.handleMessagingHistorySet(event);
         });
+      },
+      onMessagingHistoryStatus: (event) => {
+        if (this.socket !== socket) return;
+        this.historySyncStatus = event.status;
+        if (event.status === "complete") this.historySyncProgress = 100;
       },
     };
     this.binding = binding;
@@ -423,6 +565,7 @@ export class WhatsAppSocketManager {
     socket.ev.on("chats.delete", binding.onChatsDelete);
     socket.ev.on("lid-mapping.update", binding.onLidMappingUpdate);
     socket.ev.on("messaging-history.set", binding.onMessagingHistorySet);
+    socket.ev.on("messaging-history.status", binding.onMessagingHistoryStatus);
   }
 
   private detachSocket(): WhatsAppSocket | undefined {
@@ -440,6 +583,7 @@ export class WhatsAppSocketManager {
       socket.ev.off("chats.delete", binding.onChatsDelete);
       socket.ev.off("lid-mapping.update", binding.onLidMappingUpdate);
       socket.ev.off("messaging-history.set", binding.onMessagingHistorySet);
+      socket.ev.off("messaging-history.status", binding.onMessagingHistoryStatus);
     }
     this.binding = undefined;
     this.socket = undefined;
@@ -494,7 +638,7 @@ export class WhatsAppSocketManager {
     while (this.desired && !this.terminal) {
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         this.desired = false;
-        this.lastError = `WhatsApp reconnect limit reached: ${errorMessage(lastFailure)}`;
+        this.lastError = `WhatsApp reconnect limit reached: ${disconnectMessage(lastFailure)}`;
         await this.emitStatus("error", this.lastError);
         return;
       }
@@ -525,14 +669,28 @@ export class WhatsAppSocketManager {
   }
 
   private async handleMessagesUpsert(event: MessagesUpsert): Promise<void> {
-    if (event.type !== "notify" || !this.listener) return;
+    if (!this.listener) return;
+    const historical = event.type !== "notify";
     for (const raw of event.messages) {
-      await this.deliverMessage(raw);
+      await this.deliverMessage(raw, {}, false, {}, historical);
     }
+    await this.persistChats();
   }
 
   private async handleMessagingHistorySet(event: MessagingHistorySet): Promise<void> {
     if (!this.listener) return;
+    if (event.isLatest) {
+      this.historySyncStatus = "complete";
+    } else if (
+      this.historySyncStatus !== "paused" &&
+      this.historySyncStatus !== "complete"
+    ) {
+      this.historySyncStatus = "syncing";
+    }
+    if (typeof event.progress === "number") {
+      this.historySyncProgress = Math.max(0, Math.min(100, Math.round(event.progress)));
+    }
+    if (event.isLatest) this.historySyncProgress = 100;
     for (const mapping of event.lidPnMappings ?? []) this.cacheLidMapping(mapping);
     const contacts = new Map<string, MessagingHistorySet["contacts"][number]>();
     for (const contact of event.contacts) {
@@ -542,19 +700,15 @@ export class WhatsAppSocketManager {
       this.cacheContact(contact);
     }
     await Promise.all(event.chats.map((chat) => this.cacheChat(chat)));
+    await this.persistChats();
 
-    const latestByChat = new Map<string, MessagingHistorySet["messages"][number]>();
-    for (const message of event.messages) {
+    const messages = [...event.messages].sort(
+      (left, right) => this.messageTimestamp(left) - this.messageTimestamp(right),
+    );
+    for (const message of messages) {
       const jid = message.key.remoteJid;
       if (!jid) continue;
-      const key = normalizeWhatsAppJid(jid);
-      const current = latestByChat.get(key);
-      if (!current || this.messageTimestamp(message) > this.messageTimestamp(current)) {
-        latestByChat.set(key, message);
-      }
-    }
-
-    for (const [externalId, message] of latestByChat) {
+      const externalId = normalizeWhatsAppJid(jid);
       const contact = contacts.get(externalId);
       const displayName = contact?.name ?? contact?.notify ?? contact?.verifiedName;
       const avatarUrl =
@@ -567,6 +721,7 @@ export class WhatsAppSocketManager {
         },
         false,
         this.chatMetadataFor(message.key.remoteJid),
+        true,
       );
     }
   }
@@ -629,7 +784,16 @@ export class WhatsAppSocketManager {
       this.contactPhonesByAlias.set(normalizeWhatsAppJid(alias), id);
     }
     const previous = this.contacts.get(id);
-    const name = contact.name ?? contact.notify ?? contact.verifiedName ?? previous?.name ?? id;
+    const previousName =
+      previous?.name && previous.name !== previous.id && !/^\d+$/.test(previous.name)
+        ? previous.name
+        : undefined;
+    const name =
+      contact.name?.trim() ||
+      previousName ||
+      contact.notify?.trim() ||
+      contact.verifiedName?.trim() ||
+      id;
     const avatarUrl =
       contact.imgUrl && contact.imgUrl !== "changed" ? contact.imgUrl : previous?.avatarUrl;
     this.contacts.set(id, {
@@ -646,8 +810,14 @@ export class WhatsAppSocketManager {
     historyIdentity: ConversationIdentity = {},
     resolveRemoteIdentity = true,
     conversationMetadata: Readonly<Record<string, unknown>> = {},
+    historical = false,
   ): Promise<void> {
     if (!this.listener) return;
+    if (historical && this.messageTimestamp(raw) <= 0) return;
+    const providerMessageId = raw.key.id;
+    if (providerMessageId && this.mediaInfo(raw)) {
+      this.mediaMessages.set(providerMessageId, raw);
+    }
     const normalized = normalizeInboundMessage(this.connectionId, raw);
     if (!normalized) return;
     const conversationId = await this.resolveExternalId(normalized.conversationAddress.externalId);
@@ -656,6 +826,7 @@ export class WhatsAppSocketManager {
       conversationId,
       normalized.occurredAt,
       resolveRemoteIdentity && raw.key.fromMe !== true,
+      !historical,
     );
     const addressed: InboundMessage = {
       ...normalized,
@@ -667,7 +838,7 @@ export class WhatsAppSocketManager {
         ...normalized.senderAddress,
         externalId: senderId,
       },
-      ...(resolveRemoteIdentity ? {} : { historical: true }),
+      ...(historical ? { historical: true } : {}),
       ...(Object.keys(conversationMetadata).length === 0 ? {} : { conversationMetadata }),
     };
     const contact = this.contacts.get(conversationId);
@@ -682,7 +853,7 @@ export class WhatsAppSocketManager {
           contactName ?? historyIdentity.displayName ?? addressed.displayName,
         )
       : historyIdentity;
-    const displayName = contactName ?? identity.displayName;
+    const displayName = contactName ?? identity.displayName ?? addressed.displayName;
     const avatarUrl = contact?.avatarUrl ?? historyIdentity.avatarUrl ?? identity.avatarUrl;
     const message: InboundMessage = {
       ...addressed,
@@ -694,6 +865,34 @@ export class WhatsAppSocketManager {
     } catch {
       // Consumer failures are isolated by the channel runtime.
     }
+  }
+
+  private mediaInfo(raw: MessagingHistorySet["messages"][number]): WhatsAppMediaInfo | undefined {
+    const content = normalizeMessageContent(raw.message);
+    if (!content) return undefined;
+    if (content.imageMessage) {
+      return { kind: "image", mimeType: content.imageMessage.mimetype ?? "image/jpeg" };
+    }
+    if (content.videoMessage) {
+      return { kind: "video", mimeType: content.videoMessage.mimetype ?? "video/mp4" };
+    }
+    if (content.audioMessage) {
+      return { kind: "audio", mimeType: content.audioMessage.mimetype ?? "audio/ogg" };
+    }
+    if (content.stickerMessage) {
+      return { kind: "sticker", mimeType: content.stickerMessage.mimetype ?? "image/webp" };
+    }
+    if (content.documentMessage) {
+      return {
+        kind: "document",
+        mimeType: content.documentMessage.mimetype ?? "application/octet-stream",
+        ...(content.documentMessage.fileName === null ||
+        content.documentMessage.fileName === undefined
+          ? {}
+          : { fileName: content.documentMessage.fileName }),
+      };
+    }
+    return undefined;
   }
 
   private messageTimestamp(message: MessagingHistorySet["messages"][number]): number {
@@ -709,8 +908,10 @@ export class WhatsAppSocketManager {
     externalId: string,
     occurredAt: string,
     incrementsUnread: boolean,
+    createIfMissing: boolean,
   ): void {
     const previous = this.chats.get(externalId);
+    if (!previous && !createIfMissing) return;
     if (previous && previous.lastActivityAt > occurredAt) return;
     this.chats.set(externalId, {
       externalId,
@@ -839,6 +1040,10 @@ export class WhatsAppSocketManager {
     } catch {
       // Status consumers must not break the socket lifecycle.
     }
+  }
+
+  private async persistChats(): Promise<void> {
+    await this.chatIndex.save([...this.chats.values()]);
   }
 
   private setQr(value: string): void {

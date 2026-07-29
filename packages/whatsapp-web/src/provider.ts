@@ -21,6 +21,8 @@ import type {
   WhatsAppConnectionSnapshot,
   WhatsAppChat,
   WhatsAppContact,
+  WhatsAppHistoryCursor,
+  WhatsAppMediaInfo,
   WhatsAppSocketManagerOptions,
 } from "./socket-manager.js";
 
@@ -124,6 +126,38 @@ export class WhatsAppWebProvider implements ChannelProvider {
       providerMessageId: result.providerMessageId,
       sentAt: result.sentAt,
     };
+  }
+
+  public async fetchMessageHistory(
+    connectionId: string,
+    externalId: string,
+    cursor: {
+      readonly providerMessageId: string;
+      readonly occurredAt: string;
+      readonly fromMe: boolean;
+    },
+    count: number,
+  ): Promise<string> {
+    return this.requireManager(connectionId).fetchMessageHistory(externalId, cursor, count);
+  }
+
+  public fetchMessageHistories(
+    connectionId: string,
+    cursors: readonly WhatsAppHistoryCursor[],
+    count: number,
+  ): { readonly requestedConversations: number; readonly countPerConversation: number } {
+    return this.requireManager(connectionId).fetchMessageHistories(cursors, count);
+  }
+
+  public getMediaInfo(connectionId: string, providerMessageId: string): WhatsAppMediaInfo | undefined {
+    return this.requireManager(connectionId).getMediaInfo(providerMessageId);
+  }
+
+  public downloadMedia(
+    connectionId: string,
+    providerMessageId: string,
+  ): Promise<{ readonly data: Buffer; readonly info: WhatsAppMediaInfo }> {
+    return this.requireManager(connectionId).downloadMedia(providerMessageId);
   }
 
   public getSnapshot(connectionId: string): WhatsAppConnectionSnapshot | undefined {

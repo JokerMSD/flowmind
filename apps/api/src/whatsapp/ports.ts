@@ -4,6 +4,8 @@ import type {
   WhatsAppChat,
   WhatsAppContact,
   WhatsAppWebProviderOptions,
+  WhatsAppHistoryCursor,
+  WhatsAppMediaInfo,
 } from "@flowmind/whatsapp-web";
 
 export interface WhatsAppProviderPort extends ChannelProvider {
@@ -11,6 +13,26 @@ export interface WhatsAppProviderPort extends ChannelProvider {
   getSnapshot(connectionId: string): WhatsAppConnectionSnapshot | undefined;
   listContacts?(connectionId: string): readonly WhatsAppContact[];
   listChats?(connectionId: string): readonly WhatsAppChat[];
+  fetchMessageHistory?(
+    connectionId: string,
+    externalId: string,
+    cursor: {
+      readonly providerMessageId: string;
+      readonly occurredAt: string;
+      readonly fromMe: boolean;
+    },
+    count: number,
+  ): Promise<string>;
+  fetchMessageHistories?(
+    connectionId: string,
+    cursors: readonly WhatsAppHistoryCursor[],
+    count: number,
+  ): { readonly requestedConversations: number; readonly countPerConversation: number };
+  getMediaInfo?(connectionId: string, providerMessageId: string): WhatsAppMediaInfo | undefined;
+  downloadMedia?(
+    connectionId: string,
+    providerMessageId: string,
+  ): Promise<{ readonly data: Buffer; readonly info: WhatsAppMediaInfo }>;
   resolveConversationIdentity?(
     connectionId: string,
     externalId: string,

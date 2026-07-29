@@ -21,6 +21,7 @@ import {
   ChannelProviderRegistry,
   ChannelRuntime,
   ConversationProcessor,
+  formatCsnfMessage,
   SlidingWindowRateLimiter,
 } from "@flowmind/channel-runtime";
 import type { AgentRuntimePort } from "@flowmind/channel-runtime";
@@ -64,11 +65,16 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
   const nextId = options.nextId ?? randomUUID;
   const featureEnabled = environment.WHATSAPP_WEB_ENABLED === "true";
   const channelStoragePath = join(options.storagePath, "channels", "whatsapp");
+  const retentionMs = parseRetentionMs(environment.WHATSAPP_WEB_MESSAGE_RETENTION_DAYS);
   const memory = new JsonChannelMemory(channelStoragePath, {
     defaultSettings: createDefaultChannelSettings("csnf"),
+    retention: {
+      messagesMaxAgeMs: retentionMs,
+      externalMessagesMaxAgeMs: retentionMs,
+    },
   });
   const providers = new ChannelProviderRegistry();
-  const provider = (
+  const provider: WhatsAppProviderPort = (
     options.providerFactory ?? ((providerOptions) => new WhatsAppWebProvider(providerOptions))
   )({
     authDirectory:
@@ -98,6 +104,7 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     identifiers,
     rateLimiter,
   });
+  let proactiveTimer: ReturnType<typeof setInterval> | undefined;
   const runtime = new ChannelRuntime(memory.connections, providers, processor);
   const manager = new WhatsAppConnectionManager(memory, provider, runtime, featureEnabled, now);
   const reminderDelivery = new WhatsAppWebReminderDeliveryProvider({
@@ -119,11 +126,116 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
 
   async function start(): Promise<void> {
     await initialize();
-    if (featureEnabled) await runtime.start();
+    if (featureEnabled) {
+      await runtime.start();
+      proactiveTimer = setInterval(() => void runProactiveOnce(), 60_000);
+    }
   }
 
   async function stop(): Promise<void> {
+    if (proactiveTimer) clearInterval(proactiveTimer);
+    proactiveTimer = undefined;
     await runtime.stop();
+  }
+
+  async function runProactiveOnce(): Promise<void> {
+    const current = now();
+    if (current.getHours() < 9 || current.getHours() >= 21) return;
+    const [settings, connection, conversations] = await Promise.all([
+      memory.settings.get(),
+      memory.connections.findById(WHATSAPP_PERSONAL_CONNECTION_ID),
+      memory.conversations.list({
+        connectionId: WHATSAPP_PERSONAL_CONNECTION_ID,
+        automationMode: "enabled",
+        order: "asc",
+      }),
+    ]);
+    if (
+      !settings.enabled ||
+      settings.pauseAll ||
+      !connection?.enabled ||
+      connection.status !== "connected" ||
+      !agentRuntimePort.initiate
+    ) {
+      return;
+    }
+    const inactivityCutoff = current.getTime() - 24 * 60 * 60_000;
+    const cooldownCutoff = current.getTime() - 24 * 60 * 60_000;
+    const conversation = conversations.find((candidate) => {
+      if (candidate.type !== "private") return false;
+      const lastActivity = Date.parse(candidate.lastMessageAt ?? candidate.updatedAt);
+      const lastProactive =
+        typeof candidate.metadata.agentProactiveAt === "string"
+          ? Date.parse(candidate.metadata.agentProactiveAt)
+          : Number.NEGATIVE_INFINITY;
+      const activeUntil =
+        typeof candidate.metadata.agentActiveUntil === "string"
+          ? Date.parse(candidate.metadata.agentActiveUntil)
+          : Number.NEGATIVE_INFINITY;
+      const preferredTime =
+        typeof candidate.metadata.preferredCheckInTime === "string"
+          ? candidate.metadata.preferredCheckInTime
+          : undefined;
+      const scheduledNow = preferredTime ? isPreferredCheckInWindow(current, preferredTime) : false;
+      const proactiveDay =
+        typeof candidate.metadata.agentProactiveDay === "string"
+          ? candidate.metadata.agentProactiveDay
+          : undefined;
+      const today = localDateKey(current);
+      return activeUntil <= current.getTime() &&
+        lastProactive <= cooldownCutoff &&
+        proactiveDay !== today &&
+        (scheduledNow || lastActivity <= inactivityCutoff);
+    });
+    if (!conversation) return;
+    try {
+      const initiated = await agentRuntimePort.initiate({
+        agentId: conversation.agentId,
+        ...(conversation.sessionId === undefined ? {} : { sessionId: conversation.sessionId }),
+        target: {
+          channelId: conversation.channelId,
+          connectionId: conversation.connectionId,
+          conversationId: conversation.id,
+        },
+      });
+      const sent = await providers.resolve(connection.providerId).send({
+        connectionId: connection.id,
+        conversationAddress: {
+          channelId: conversation.channelId,
+          externalId: conversation.externalConversationId,
+        },
+        content: formatCsnfMessage(initiated.message.content),
+      });
+      const proactiveContent = formatCsnfMessage(initiated.message.content);
+      await Promise.all([
+        memory.messages.save({
+          id: nextId(),
+          conversationId: conversation.id,
+          connectionId: connection.id,
+          direction: "outbound",
+          content: proactiveContent,
+          status: "sent",
+          providerMessageId: sent.providerMessageId,
+          createdAt: sent.sentAt,
+        }),
+        memory.conversations.save({
+          ...conversation,
+          sessionId: initiated.session.id,
+          lastMessagePreview: proactiveContent.slice(0, 120),
+          lastMessageAt: sent.sentAt,
+          lastOutboundAt: sent.sentAt,
+          metadata: {
+            ...conversation.metadata,
+            agentProactiveAt: sent.sentAt,
+            agentProactiveDay: localDateKey(current),
+            agentActiveUntil: new Date(current.getTime() + 30 * 60_000).toISOString(),
+          },
+          updatedAt: sent.sentAt,
+        }),
+      ]);
+    } catch {
+      // A proactive failure must not affect inbound WhatsApp processing.
+    }
   }
 
   async function updateSettings(update: Partial<ChannelSettings>): Promise<ChannelSettings> {
@@ -199,19 +311,53 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
   async function syncProviderChats(connectionId: string): Promise<void> {
     const chats = provider.listChats?.(connectionId) ?? [];
     if (chats.length === 0) return;
-    const [settings, contacts] = await Promise.all([
+    const [settings, contacts, existingConversations] = await Promise.all([
       memory.settings.get(),
       Promise.resolve(provider.listContacts?.(connectionId) ?? []),
+      memory.conversations.list({ connectionId }),
     ]);
     const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+    const conversationsByExternalId = new Map(
+      existingConversations.map((conversation) => [
+        conversation.externalConversationId,
+        conversation,
+      ]),
+    );
     await Promise.all(
       chats.map(async (chat) => {
-        const existing = await memory.conversations.findByConnectionAndExternalConversationId(
-          connectionId,
-          chat.externalId,
-        );
-        if (existing) return;
+        const existing = conversationsByExternalId.get(chat.externalId);
         const contact = contactsById.get(chat.externalId);
+        if (existing) {
+          const lastMessageAt =
+            existing.lastMessageAt && existing.lastMessageAt > chat.lastActivityAt
+              ? existing.lastMessageAt
+              : chat.lastActivityAt;
+          const displayName = contact?.name ?? existing.displayName;
+          const pinnedAt = chat.pinnedAt ?? existing.metadata.pinnedAt;
+          const avatarUrl = contact?.avatarUrl ?? existing.metadata.avatarUrl;
+          if (
+            existing.displayName === displayName &&
+            existing.unreadCount === chat.unreadCount &&
+            existing.lastMessageAt === lastMessageAt &&
+            existing.metadata.pinnedAt === pinnedAt &&
+            existing.metadata.avatarUrl === avatarUrl
+          ) {
+            return;
+          }
+          await memory.conversations.save({
+            ...existing,
+            ...(displayName === undefined ? {} : { displayName }),
+            unreadCount: chat.unreadCount,
+            lastMessageAt,
+            metadata: {
+              ...existing.metadata,
+              ...(pinnedAt === undefined ? {} : { pinnedAt }),
+              ...(avatarUrl === undefined ? {} : { avatarUrl }),
+            },
+            updatedAt: now().toISOString(),
+          });
+          return;
+        }
         const createdAt = now().toISOString();
         await memory.conversations.save({
           id: nextId(),
@@ -287,6 +433,7 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
         memory.messages.save(delivered),
         memory.conversations.save({
           ...conversationWithoutError,
+          metadata: withoutAgentEngagement(conversation.metadata),
           lastMessagePreview: input.content.slice(0, 120),
           lastMessageAt: sent.sentAt,
           lastOutboundAt: sent.sentAt,
@@ -305,9 +452,56 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     }
   }
 
+  async function fetchAllConversationHistory(): Promise<{
+    readonly requestedConversations: number;
+    readonly countPerConversation: number;
+  }> {
+    const fetchHistory = provider.fetchMessageHistories?.bind(provider);
+    if (!fetchHistory) {
+      throw unavailable("Este provedor nao suporta busca de mensagens antigas.");
+    }
+    if (provider.getSnapshot(WHATSAPP_PERSONAL_CONNECTION_ID)?.status !== "connected") {
+      throw conflict("Conecte o WhatsApp antes de buscar mensagens antigas.");
+    }
+    const conversations = await memory.conversations.list({
+      connectionId: WHATSAPP_PERSONAL_CONNECTION_ID,
+    });
+    const messages = await memory.messages.list({ order: "asc" });
+    const oldestMessageByConversation = new Map<string, ChannelMessage>();
+    for (const message of messages) {
+      if (
+        message.providerMessageId &&
+        !oldestMessageByConversation.has(message.conversationId)
+      ) {
+        oldestMessageByConversation.set(message.conversationId, message);
+      }
+    }
+    const cursors = [];
+    for (const conversation of conversations) {
+      const cursor = oldestMessageByConversation.get(conversation.id);
+      if (!cursor?.providerMessageId) continue;
+      cursors.push({
+        externalId: conversation.externalConversationId,
+        providerMessageId: cursor.providerMessageId,
+        occurredAt: cursor.createdAt,
+        fromMe: cursor.direction === "outbound",
+      });
+    }
+    if (cursors.length === 0) {
+      throw conflict("Ainda nao existem conversas com cursor para buscar o historico.");
+    }
+    const count = 50;
+    try {
+      return fetchHistory(WHATSAPP_PERSONAL_CONNECTION_ID, cursors, count);
+    } catch {
+      throw conflict("O historico ja foi solicitado nesta sessao ou esta indisponivel.");
+    }
+  }
+
   return {
     agentRuntimePort,
     featureEnabled,
+    fetchAllConversationHistory,
     initialize,
     hydrateConversationIdentities,
     manager,
@@ -317,6 +511,7 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     providers,
     reminderDelivery,
     resetConversationSession,
+    runProactiveOnce,
     runtime,
     sendManualMessage,
     setConversationMode,
@@ -334,12 +529,20 @@ export function mapAgentRuntimePort(
   reminderCommands?: WhatsAppReminderCommands,
 ): AgentRuntimePort {
   return {
+    shouldRespond: (request) => runtime.shouldRespond(request),
     chat: async (request) => {
       const result = await runtime.chat(request);
       const commandResponse = reminderCommands ? await reminderCommands.handle(request) : undefined;
       return {
         session: { id: result.session.id },
         message: { content: commandResponse ?? result.message.content },
+      };
+    },
+    initiate: async (request) => {
+      const result = await runtime.initiate(request);
+      return {
+        session: { id: result.session.id },
+        message: { content: result.message.content },
       };
     },
   };
@@ -396,6 +599,7 @@ class WhatsAppConnectionManager implements WhatsAppConnectionManagerPort {
       } else {
         await this.provider.disconnect(connectionId);
       }
+      await this.memory.clearConversationData();
       return this.save(connection, { enabled: false, status: "logged_out" });
     } catch {
       throw unavailable("Nao foi possivel encerrar a sessao WhatsApp.");
@@ -430,10 +634,48 @@ class WhatsAppConnectionManager implements WhatsAppConnectionManagerPort {
   }
 }
 
+function parseRetentionMs(value: string | undefined): number {
+  const days = value === undefined ? 30 : Number(value);
+  if (!Number.isSafeInteger(days) || days < 1) {
+    throw new Error("WHATSAPP_WEB_MESSAGE_RETENTION_DAYS must be a positive integer.");
+  }
+  return days * 24 * 60 * 60_000;
+}
+
 class WhatsAppRateLimitError extends WhatsAppApiError {
   public constructor() {
     super(429, "WHATSAPP_RATE_LIMITED", "Limite de envio do WhatsApp atingido.");
   }
+}
+
+function withoutAgentEngagement(
+  metadata: ChannelConversation["metadata"],
+): ChannelConversation["metadata"] {
+  const {
+    agentActiveUntil: _agentActiveUntil,
+    agentActivatedAt: _agentActivatedAt,
+    ...remaining
+  } = metadata;
+  return remaining;
+}
+
+function isPreferredCheckInWindow(now: Date, value: string): boolean {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return false;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const preferredMinutes = hour * 60 + minute;
+  return currentMinutes >= preferredMinutes + 5 && currentMinutes <= preferredMinutes + 35;
+}
+
+function localDateKey(value: Date): string {
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 async function requireConversation(

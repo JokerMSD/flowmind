@@ -8,7 +8,7 @@ import { WHATSAPP_CHANNEL_ID } from "@flowmind/channel-core";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { createAdminAuthHook, type AdminAuth } from "../admin/index.js";
-import { WhatsAppApiError, notFound } from "./errors.js";
+import { WhatsAppApiError, notFound, unavailable } from "./errors.js";
 import type { WhatsAppContainer } from "./container.js";
 import {
   modeMatches,
@@ -125,16 +125,27 @@ function registerPrefix(
         ...(query.search === undefined ? {} : { search: query.search }),
         order: "desc",
       });
-      const filtered = conversations.filter(
-        (conversation) =>
-          !conversation.externalConversationId.endsWith("@lid") &&
-          modeMatches(conversation.automationMode, query.mode),
-      );
-      const hydrated = await container.hydrateConversationIdentities(filtered);
       const chats = container.provider.listChats?.(query.connectionId) ?? [];
+      const activeChatIds = new Set(chats.map((chat) => chat.externalId));
+      const canonicalConversations = new Map<string, ChannelConversation>();
+      for (const conversation of conversations) {
+        const externalId = conversation.normalizedPhone ?? conversation.externalConversationId;
+        if (!activeChatIds.has(externalId)) continue;
+        const current = canonicalConversations.get(externalId);
+        if (
+          current === undefined ||
+          (current.externalConversationId.endsWith("@lid") &&
+            !conversation.externalConversationId.endsWith("@lid"))
+        ) {
+          canonicalConversations.set(externalId, conversation);
+        }
+      }
+      const filtered = [...canonicalConversations.values()].filter((conversation) =>
+        modeMatches(conversation.automationMode, query.mode),
+      );
       const chatOrder = new Map(chats.map((chat, index) => [chat.externalId, index]));
       const chatByExternalId = new Map(chats.map((chat) => [chat.externalId, chat]));
-      return [...hydrated]
+      return [...filtered]
         .sort((left, right) => {
           const leftOrder =
             chatOrder.get(left.normalizedPhone ?? left.externalConversationId) ??
@@ -142,7 +153,8 @@ function registerPrefix(
           const rightOrder =
             chatOrder.get(right.normalizedPhone ?? right.externalConversationId) ??
             Number.MAX_SAFE_INTEGER;
-          return leftOrder - rightOrder;
+          if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+          return conversationActivity(right).localeCompare(conversationActivity(left));
         })
         .map((conversation) => {
           const payload = conversationPayload(conversation);
@@ -171,15 +183,20 @@ function registerPrefix(
         order: "desc",
       });
       const privateConversations = conversations.filter(
-        (conversation) =>
-          conversation.type === "private" && !conversation.externalConversationId.endsWith("@lid"),
+        (conversation) => conversation.type === "private",
       );
-      const conversationByPhone = new Map(
-        privateConversations.map((conversation) => [
-          conversation.normalizedPhone ?? conversation.externalConversationId,
-          conversation,
-        ]),
-      );
+      const conversationByPhone = new Map<string, ChannelConversation>();
+      for (const conversation of privateConversations) {
+        const phone = conversation.normalizedPhone ?? conversation.externalConversationId;
+        const current = conversationByPhone.get(phone);
+        if (
+          current === undefined ||
+          (current.externalConversationId.endsWith("@lid") &&
+            !conversation.externalConversationId.endsWith("@lid"))
+        ) {
+          conversationByPhone.set(phone, conversation);
+        }
+      }
       const merged = new Map(
         contacts.map((contact) => {
           const conversation = conversationByPhone.get(contact.phone ?? contact.id);
@@ -207,9 +224,9 @@ function registerPrefix(
           ...(avatarUrl === undefined ? {} : { avatarUrl }),
         });
       }
-      return [...merged.values()].sort((left, right) =>
-        left.name.localeCompare(right.name, "pt-BR"),
-      );
+      return [...merged.values()]
+        .filter((contact) => isUsableContact(contact.phone ?? contact.id))
+        .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
     }),
   );
 
@@ -241,8 +258,82 @@ function registerPrefix(
         const messages = await container.memory.messages.listByConversation(conversation.id, {
           order: "asc",
         });
-        return messages.map(messagePayload);
+        const emptyMessagesByTimestamp = new Map<string, number>();
+        for (const message of messages) {
+          if (message.content.trim().length > 0) continue;
+          emptyMessagesByTimestamp.set(
+            message.createdAt,
+            (emptyMessagesByTimestamp.get(message.createdAt) ?? 0) + 1,
+          );
+        }
+        return messages.flatMap((message) => {
+          if (
+            message.content.trim().length === 0 &&
+            (emptyMessagesByTimestamp.get(message.createdAt) ?? 0) > 5
+          ) {
+            return [];
+          }
+          const media =
+            message.providerMessageId === undefined
+              ? undefined
+              : container.provider.getMediaInfo?.(
+                  message.connectionId,
+                  message.providerMessageId,
+                );
+          if (message.content.trim().length === 0 && media === undefined) return [];
+          return [
+            messagePayload(
+              message,
+              media
+                ? `${prefix}/conversations/${encodeURIComponent(conversation.id)}/messages/${encodeURIComponent(message.id)}/media`
+                : undefined,
+              media,
+            ),
+          ];
+        });
       }),
+  );
+
+  server.get(
+    `${prefix}/conversations/:conversationId/messages/:messageId/media`,
+    protectedRoute,
+    async (request, reply) =>
+      respond(reply, async () => {
+        const conversation = await requireConversation(container, request);
+        const params = asRecord(request.params);
+        const messageId = typeof params.messageId === "string" ? params.messageId : "";
+        const message = await container.memory.messages.findById(messageId);
+        if (
+          !message ||
+          message.conversationId !== conversation.id ||
+          !message.providerMessageId ||
+          !container.provider.downloadMedia
+        ) {
+          throw notFound("Midia do WhatsApp nao encontrada.");
+        }
+        try {
+          const media = await container.provider.downloadMedia(
+            message.connectionId,
+            message.providerMessageId,
+          );
+          reply.header("Cache-Control", "private, max-age=300");
+          if (media.info.fileName) {
+            reply.header(
+              "Content-Disposition",
+              `inline; filename="${media.info.fileName.replaceAll('"', "")}"`,
+            );
+          }
+          return reply.type(media.info.mimeType).send(media.data);
+        } catch {
+          throw unavailable("A midia nao esta mais disponivel nesta sessao.");
+        }
+      }),
+  );
+
+  server.post(`${prefix}/history`, protectedRoute, async (_request, reply) =>
+    respond(reply, async () =>
+      reply.code(202).send(await container.fetchAllConversationHistory()),
+    ),
   );
 
   for (const suffix of ["messages", "send"] as const) {
@@ -302,6 +393,10 @@ async function statusPayload(
     ...(snapshot?.qr?.expiresAt === undefined ? {} : { qrExpiresAt: snapshot.qr.expiresAt }),
     ...(snapshot?.address === undefined ? {} : { address: snapshot.address }),
     ...(snapshot?.error === undefined ? {} : { error: snapshot.error }),
+    historySyncStatus: snapshot?.historySyncStatus ?? "idle",
+    ...(snapshot?.historySyncProgress === undefined
+      ? {}
+      : { historySyncProgress: snapshot.historySyncProgress }),
   };
 }
 
@@ -350,12 +445,36 @@ function conversationPayload(conversation: ChannelConversation): Record<string, 
   };
 }
 
-function messagePayload(message: ChannelMessage): Record<string, unknown> {
+function conversationActivity(conversation: ChannelConversation): string {
+  return conversation.lastMessageAt ?? conversation.updatedAt ?? conversation.createdAt;
+}
+
+function isUsableContact(value: string): boolean {
+  if (value.endsWith("@lid")) return false;
+  const normalized = value.replace(/@(?:lid|s\.whatsapp\.net|c\.us)$/i, "");
+  return /^\d{8,15}$/.test(normalized);
+}
+
+function messagePayload(
+  message: ChannelMessage,
+  mediaUrl?: string,
+  media?: { readonly kind: string; readonly mimeType: string; readonly fileName?: string },
+): Record<string, unknown> {
   return {
     ...message,
     body: message.content,
     direction: message.direction === "inbound" ? "incoming" : "outgoing",
     sentAt: message.createdAt,
+    ...(mediaUrl === undefined || media === undefined
+      ? {}
+      : {
+          media: {
+            url: mediaUrl,
+            type: media.kind,
+            mimeType: media.mimeType,
+            ...(media.fileName === undefined ? {} : { fileName: media.fileName }),
+          },
+        }),
   };
 }
 

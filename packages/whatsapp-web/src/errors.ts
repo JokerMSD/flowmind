@@ -27,6 +27,15 @@ export class AuthStateCorruptionError extends WhatsAppWebError {
   }
 }
 
+export class ChatIndexCorruptionError extends WhatsAppWebError {
+  public constructor(
+    public readonly filePath: string,
+    cause?: unknown,
+  ) {
+    super(`WhatsApp chat index is corrupt at ${filePath}`, { cause });
+  }
+}
+
 export class InvalidWhatsAppConnectionError extends WhatsAppWebError {}
 
 export class WhatsAppConnectionNotFoundError extends WhatsAppWebError {

@@ -31,13 +31,16 @@ import type { WhatsAppProviderPort } from "./whatsapp/index.js";
 
 test("agent chat persists a session and validates empty messages", async () => {
   await withServer(async (server) => {
-    const agents = await server.inject({ method: "GET", url: "/agents" });
+    const cookie = await loginCookie(server);
+    const headers = { cookie };
+    const agents = await server.inject({ method: "GET", url: "/agents", headers });
     assert.equal(agents.statusCode, 200);
     assert.equal(agents.json()[0].id, "csnf");
 
     const chat = await server.inject({
       method: "POST",
       url: "/chat",
+      headers,
       payload: { agentId: "csnf", message: "Ola" },
     });
     assert.equal(chat.statusCode, 200);
@@ -46,12 +49,14 @@ test("agent chat persists a session and validates empty messages", async () => {
     const session = await server.inject({
       method: "GET",
       url: `/sessions/${chat.json().sessionId}`,
+      headers,
     });
     assert.equal(session.json().messages.length, 2);
 
     const invalid = await server.inject({
       method: "POST",
       url: "/chat",
+      headers,
       payload: { agentId: "csnf", message: "   " },
     });
     assert.equal(invalid.statusCode, 400);
@@ -60,6 +65,7 @@ test("agent chat persists a session and validates empty messages", async () => {
 
 test("agent routes reject invalid client input before reaching the domain", async () => {
   await withServer(async (server) => {
+    const cookie = await loginCookie(server);
     const cases = [
       { method: "GET", url: "/agents/%20" },
       { method: "GET", url: "/sessions/%20" },
@@ -73,7 +79,7 @@ test("agent routes reject invalid client input before reaching the domain", asyn
     ] as const;
 
     for (const request of cases) {
-      const response = await server.inject(request);
+      const response = await server.inject({ ...request, headers: { cookie } });
       assert.ok(
         response.statusCode === 400 || response.statusCode === 422,
         `${request.method} ${request.url}`,
@@ -84,9 +90,24 @@ test("agent routes reject invalid client input before reaching the domain", asyn
       method: "POST",
       url: "/chat",
       payload: "{",
-      headers: { "content-type": "application/json" },
+      headers: { cookie, "content-type": "application/json" },
     });
     assert.equal(malformedJson.statusCode, 400);
+  });
+});
+
+test("agent, session, and reminder routes require an authenticated account", async () => {
+  await withServer(async (server) => {
+    for (const request of [
+      { method: "GET", url: "/agents" },
+      { method: "POST", url: "/chat", payload: { agentId: "csnf", message: "Ola" } },
+      { method: "GET", url: "/sessions/example" },
+      { method: "GET", url: "/reminders" },
+      { method: "GET", url: "/reminder-occurrences" },
+    ] as const) {
+      const response = await server.inject(request);
+      assert.equal(response.statusCode, 401, `${request.method} ${request.url}`);
+    }
   });
 });
 
@@ -101,6 +122,8 @@ test("workflow execution rejects invalid payloads as client errors", async () =>
 
 test("reminder API creates, normalizes, updates status, and deletes", async () => {
   await withServer(async (server) => {
+    const cookie = await loginCookie(server);
+    const headers = { cookie };
     const payload = {
       agentId: "csnf",
       type: "shape-photo",
@@ -117,7 +140,7 @@ test("reminder API creates, normalizes, updates status, and deletes", async () =
         conversationId: "conversation-1",
       },
     };
-    const created = await server.inject({ method: "POST", url: "/reminders", payload });
+    const created = await server.inject({ method: "POST", url: "/reminders", payload, headers });
     assert.equal(created.statusCode, 201);
     assert.deepEqual(created.json().schedule.daysOfWeek, [1, 5]);
     assert.deepEqual(created.json().schedule.times, ["08:00", "20:00"]);
@@ -128,24 +151,27 @@ test("reminder API creates, normalizes, updates status, and deletes", async () =
       method: "PATCH",
       url: `/reminders/${id}/status`,
       payload: { enabled: false },
+      headers,
     });
     assert.equal(paused.json().enabled, false);
 
-    const listed = await server.inject({ method: "GET", url: "/reminders?agentId=csnf" });
+    const listed = await server.inject({ method: "GET", url: "/reminders?agentId=csnf", headers });
     assert.equal(listed.json().length, 1);
 
-    const removed = await server.inject({ method: "DELETE", url: `/reminders/${id}` });
+    const removed = await server.inject({ method: "DELETE", url: `/reminders/${id}`, headers });
     assert.deepEqual(removed.json(), { deleted: true });
-    const missing = await server.inject({ method: "GET", url: `/reminders/${id}` });
+    const missing = await server.inject({ method: "GET", url: `/reminders/${id}`, headers });
     assert.equal(missing.statusCode, 404);
   });
 });
 
 test("reminder API rejects invalid payloads and timezones", async () => {
   await withServer(async (server) => {
+    const cookie = await loginCookie(server);
     const invalidPayload = await server.inject({
       method: "POST",
       url: "/reminders",
+      headers: { cookie },
       payload: {
         agentId: "csnf",
         type: "shape-photo",
@@ -159,6 +185,7 @@ test("reminder API rejects invalid payloads and timezones", async () => {
     const invalidTimezone = await server.inject({
       method: "POST",
       url: "/reminders",
+      headers: { cookie },
       payload: {
         agentId: "csnf",
         type: "shape-photo",
@@ -294,7 +321,6 @@ test("WhatsApp conversations expose detail, modes, messages, manual send, and re
     assert.equal(listed.statusCode, 200);
     assert.equal(listed.json().length, 1);
     assert.equal(listed.json()[0].id, conversation.id);
-    assert.equal(listed.json()[0].mode, "paused");
 
     const contacts = await server.inject({
       method: "GET",
@@ -454,6 +480,7 @@ test("WhatsApp connection endpoints connect, reconnect, expose QR, and logout th
   await withServer(
     async (server, context) => {
       const cookie = await loginCookie(server);
+      await seedConversation(context.memory);
       const connected = await server.inject({
         method: "POST",
         url: `/api/admin/whatsapp/connections/${WHATSAPP_PERSONAL_CONNECTION_ID}/connect`,
@@ -466,6 +493,7 @@ test("WhatsApp connection endpoints connect, reconnect, expose QR, and logout th
       context.provider.setSnapshot({
         connectionId: WHATSAPP_PERSONAL_CONNECTION_ID,
         status: "waiting_for_qr",
+        historySyncStatus: "idle",
         qr: {
           value: "qr-payload-not-logged",
           expiresAt: "2026-07-26T12:05:00.000Z",
@@ -498,6 +526,8 @@ test("WhatsApp connection endpoints connect, reconnect, expose QR, and logout th
       const stored = await context.memory.connections.findById(WHATSAPP_PERSONAL_CONNECTION_ID);
       assert.equal(stored?.enabled, false);
       assert.equal(stored?.status, "logged_out");
+      assert.deepEqual(await context.memory.conversations.list(), []);
+      assert.deepEqual(await context.memory.messages.list(), []);
     },
     { WHATSAPP_WEB_ENABLED: "true" },
   );
@@ -548,7 +578,7 @@ test("WhatsApp reminder delivery resolves target/provider and persists delivered
 
     assert.equal(context.provider.sent.length, 2);
     assert.match(context.provider.sent[0]?.content ?? "", /Eu sou o CSNF/i);
-    assert.equal(context.provider.sent.at(-1)?.content, reminder.message);
+    assert.equal(context.provider.sent.at(-1)?.content, `[CSNF] ${reminder.message}`);
     const saved = await occurrences.findByReminderAndScheduledFor(
       reminder.id,
       occurrence.scheduledFor,
@@ -565,7 +595,7 @@ test("WhatsApp reminder delivery resolves target/provider and persists delivered
     await occurrences.save(laterOccurrence);
     await delivery.deliver(laterOccurrence, reminder);
     assert.equal(context.provider.sent.length, 3);
-    assert.equal(context.provider.sent.at(-1)?.content, reminder.message);
+    assert.equal(context.provider.sent.at(-1)?.content, `[CSNF] ${reminder.message}`);
 
     const settings = await context.memory.settings.get();
     await context.memory.settings.save({ ...settings, pauseAll: true });
@@ -696,6 +726,7 @@ class FakeWhatsAppProvider implements WhatsAppProviderPort {
     const snapshot: WhatsAppConnectionSnapshot = {
       connectionId: connection.id,
       status: "connected",
+      historySyncStatus: "complete",
       address: "5511000000000",
     };
     this.snapshots.set(connection.id, snapshot);
@@ -738,6 +769,24 @@ class FakeWhatsAppProvider implements WhatsAppProviderPort {
     phone: string;
   }[] {
     return [{ id: "5511888888888", name: "Cliente", phone: "5511888888888" }];
+  }
+
+  public listChats(): readonly {
+    externalId: string;
+    type: "private";
+    lastActivityAt: string;
+    archived: boolean;
+    unreadCount: number;
+  }[] {
+    return [
+      {
+        externalId: "5511888888888",
+        type: "private",
+        lastActivityAt: "2026-07-26T12:01:00.000Z",
+        archived: false,
+        unreadCount: 1,
+      },
+    ];
   }
 
   public setSnapshot(snapshot: WhatsAppConnectionSnapshot): void {

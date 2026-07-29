@@ -11,7 +11,7 @@ import type {
   ChannelProviderRegistry,
   ChannelSettingsRepository,
 } from "@flowmind/channel-core";
-import { ensureCsnfIntroduction } from "@flowmind/channel-runtime";
+import { ensureCsnfIntroduction, formatCsnfMessage } from "@flowmind/channel-runtime";
 
 export interface WhatsAppWebReminderDeliveryProviderDependencies {
   readonly connections: ChannelConnectionRepository;
@@ -78,7 +78,7 @@ export class WhatsAppWebReminderDeliveryProvider implements ReminderDeliveryProv
         channelId: WHATSAPP_CHANNEL_ID,
         externalId: conversation.externalConversationId,
       },
-      content: reminder.message,
+      content: formatCsnfMessage(reminder.message),
     });
     await this.dependencies.occurrences.save({
       ...occurrence,
