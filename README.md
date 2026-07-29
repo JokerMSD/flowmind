@@ -9,9 +9,9 @@ O FlowMind e construido usando o proprio FlowMind.
 O editor deve ser rapido, simples e fluido o suficiente para que qualquer pessoa
 crie um primeiro workflow local em menos de 5 minutos.
 
-O primeiro agente oficial e o CSNF. No Alpha 0.2 ele conversa por um provider
-fake deterministico e gerencia lembretes de foto do shape com persistencia JSON.
-IA real, WhatsApp e outros canais externos ainda nao fazem parte do produto.
+O primeiro agente oficial e o CSNF. Ele gerencia lembretes de foto do shape,
+conversa pelo WhatsApp e pode usar um modelo local via Ollama. O provider fake
+deterministico continua disponivel para testes e ambientes sem IA local.
 
 Nesta etapa, o produto ja possui um primeiro workflow funcional local:
 
@@ -58,11 +58,12 @@ npm run check
 Esses comandos nao executam `corepack enable` e, portanto, nao precisam gravar
 em `C:\Program Files\nodejs` nem solicitar permissao de administrador.
 
-## Alpha 0.2 - CSNF
+## Alpha 0.3 - CSNF e WhatsApp
 
 A pagina `/agents` carrega o CSNF pela API, restaura a sessao salva no navegador
-e oferece chat, CRUD de lembretes e historico de disparos. A entrega de
-lembretes nesta sprint e interna ao app.
+e oferece chat, CRUD de lembretes e historico de disparos. A pagina
+`/agents/whatsapp` fornece inbox, contatos, historico, midias, controle de
+automacao por conversa e conexao por QR code.
 
 Variaveis disponiveis em `.env.example`:
 
@@ -70,6 +71,10 @@ Variaveis disponiveis em `.env.example`:
 FLOWMIND_STORAGE_PATH=./storage
 FLOWMIND_SCHEDULER_INTERVAL_MS=30000
 FLOWMIND_REMINDER_RECOVERY_MINUTES=10
+FLOWMIND_AI_PROVIDER=fake
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=gemma4:e2b-it-qat
+OLLAMA_TIMEOUT_MS=120000
 NEXT_PUBLIC_FLOWMIND_API_URL=http://localhost:3001
 ```
 
@@ -78,6 +83,38 @@ administrador com `npm run admin:create`. Os comandos `npm run start`,
 `npm run whatsapp:start` e `npm run whatsapp:verify` carregam o `.env`
 automaticamente. O `.env`, o storage, as contas e as credenciais do WhatsApp
 sao ignorados pelo Git.
+
+Para habilitar o canal local:
+
+```text
+WHATSAPP_WEB_ENABLED=true
+```
+
+Depois execute `npm run start`, entre em `http://localhost:3002/agents`, faca
+login e abra o canal WhatsApp. O botao de conexao exibe o QR code na interface;
+credenciais e dados de sessao permanecem somente no caminho configurado por
+`WHATSAPP_WEB_AUTH_PATH`.
+
+### IA local com Ollama
+
+Instale o Ollama no Windows e baixe o modelo:
+
+```bash
+winget install --id Ollama.Ollama -e
+ollama pull gemma4:e2b-it-qat
+```
+
+No `.env`, altere `FLOWMIND_AI_PROVIDER` para `ollama`. O CSNF passa a responder
+automaticamente apenas quando seu nome e mencionado, por exemplo:
+
+```text
+CSNF, como posso organizar meu treino hoje?
+```
+
+O modelo roda na maquina local e nao exige chave de API. A primeira resposta
+pode ser mais lenta enquanto o modelo e carregado na memoria. Se o Ollama ficar
+indisponivel, o provider fake fornece uma resposta de contingencia sem
+interromper o canal.
 
 O painel administrativo usa e-mail e senha. Senhas sao derivadas com `scrypt`
 e salt individual; sessoes opacas ficam em cookie HTTP-only e podem ser
@@ -298,7 +335,7 @@ docs/assets/execute-workflow.gif
 docs/assets/inspector-text-node.png
 ```
 
-## Por Que Alpha 0.2 Usa JSON
+## Por Que Alpha 0.3 Usa JSON
 
 O armazenamento JSON mantém a execução local simples, inspecionável e sem
 serviços externos durante a validação dos contratos de agentes, sessões,
@@ -306,12 +343,10 @@ lembretes e ocorrências. Ele é adequado para desenvolvimento e demonstrações
 um único processo, mas não é tratado como banco de dados de produção.
 
 Uma migração futura para SQLite deve preservar as interfaces de repositório de
-`@flowmind/agent-core` e substituir apenas os adapters de `agent-memory`. A
-migração deverá criar tabelas para agentes, sessões, mensagens, lembretes e
-ocorrências, usar transações para operações compostas, índices para consultas do
-scheduler e uma restrição única para `reminderId + scheduledFor`. Os dados JSON
-existentes poderão ser importados por uma ferramenta versionada, sem alterar o
-runtime ou as rotas HTTP.
+`@flowmind/agent-core` e `@flowmind/channel-core`, substituindo apenas os
+adapters de memória. A migração deverá usar transações para operações compostas,
+índices para consultas e restrições únicas para chaves idempotentes. Os dados
+JSON existentes poderão ser importados sem alterar runtimes ou rotas HTTP.
 
 ## Limitacoes Conhecidas
 
@@ -325,6 +360,19 @@ runtime ou as rotas HTTP.
 - nao existe suporte oficial ou garantia de disparo para transicoes de horario
   de verao;
 - SQLite e a migracao planejada para persistencia local transacional;
+- a fila de mensagens e limitada; saturacao e reportada pelo callback do
+  runtime, mas nao existe persistencia ou retry da fila;
+- o fallback do Ollama mantem o canal disponivel, mas nao identifica respostas
+  degradadas na interface;
+- introducoes, lembretes e iniciativas automaticas ainda nao compartilham uma
+  transacao unica;
+- WhatsApp Web usa um protocolo nao oficial e pode sofrer alteracoes externas;
+- o indice de chats e local, pertence a uma unica instancia e uma corrupcao
+  interrompe a carga com erro explicito para preservar o arquivo original;
+- o runtime nao possui lock distribuido; nunca execute duas instancias com o
+  mesmo diretorio de autenticacao;
+- o logout do WhatsApp remove conversas e mensagens locais para impedir que uma
+  nova conta pareada herde dados da conta anterior;
 
 Sessões usam controle otimista por `updatedAt` e pelo ID da ultima mensagem. Em
 um conflito local simples, o runtime recarrega a versão persistida, combina as
@@ -335,8 +383,6 @@ transações nem coordenação distribuída.
 - apenas fluxo sequencial;
 - sem loops;
 - sem `If`, `Switch` ou `Delay`;
-- sem IA;
-- sem WhatsApp;
 - sem banco de dados;
 - sem plugins externos;
 - sem auto layout;

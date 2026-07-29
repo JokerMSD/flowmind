@@ -149,8 +149,8 @@ disponivel:
   "channel": "whatsapp-web-experimental",
   "alpha": "0.3",
   "provider": "baileys",
-  "providerVersion": "6.7.23",
-  "connectionId": "default",
+  "providerVersion": "7.0.0-rc13",
+  "connectionId": "whatsapp-personal",
   "mode": "manual",
   "enabled": false,
   "auth": { "storage": "persistent-filesystem", "adminOnly": true },
@@ -158,9 +158,9 @@ disponivel:
     "massMessaging": false,
     "production": false,
     "optInRequired": true,
-    "singleInstance": true
+    "singleInstanceRequired": true
   },
-  "retention": { "messagesDays": 7, "logsDays": 30 }
+  "retention": { "messagesDays": 30 }
 }
 ```
 
@@ -174,9 +174,9 @@ para producao sem evidencia.
 
 Critérios de aceite:
 
-- Baileys resolve exatamente `6.7.23`;
+- Baileys resolve a versao fixada no pacote (`7.0.0-rc13` nesta Alpha);
 - auth dir existe, e persistente e nao esta versionado;
-- uma segunda instancia da mesma conexao e recusada;
+- a operacao confirma que somente uma instancia usa o diretorio de autenticacao;
 - QR aparece somente para administrador e nao no terminal;
 - conectar, desconectar, reconectar e logout atualizam estados observaveis;
 - mensagem de teste opt-in tem resultado, idempotencia e erro verificaveis;
