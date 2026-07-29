@@ -4,6 +4,11 @@ export type AgentSummary = {
   readonly description: string;
   readonly capabilities: readonly string[];
   readonly enabled: boolean;
+  readonly conversationProvider: string;
+  readonly aiModel: {
+    readonly provider: string;
+    readonly model: string;
+  };
 };
 
 export type ChatMessage = {

@@ -73,6 +73,11 @@ function toAgentSummary(agent: {
   readonly description: string;
   readonly capabilities: readonly string[];
   readonly enabled: boolean;
+  readonly conversationProvider: string;
+  readonly aiModel: {
+    readonly provider: string;
+    readonly model: string;
+  };
 }) {
   return {
     id: agent.id,
@@ -80,5 +85,10 @@ function toAgentSummary(agent: {
     description: agent.description,
     capabilities: agent.capabilities,
     enabled: agent.enabled,
+    conversationProvider: agent.conversationProvider,
+    aiModel: {
+      provider: agent.aiModel.provider,
+      model: agent.aiModel.model,
+    },
   };
 }

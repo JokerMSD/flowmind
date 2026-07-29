@@ -13,6 +13,8 @@ export {
   FakeConversationProvider,
   defaultConversationRules,
 } from "./fake-conversation-provider.js";
+export { OllamaConversationProvider } from "./ollama-conversation-provider.js";
+export type { OllamaConversationProviderOptions } from "./ollama-conversation-provider.js";
 export { InAppReminderDeliveryProvider } from "./in-app-reminder-delivery-provider.js";
 export { TimezoneReminderDueEvaluator } from "./reminder-due-evaluator.js";
 export { DEFAULT_PENDING_FAILURE_AFTER_MS, ReminderScheduler } from "./reminder-scheduler.js";

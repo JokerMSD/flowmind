@@ -6,8 +6,6 @@ import { agentsApi } from "../lib/agents-api";
 import { pollOccurrenceCycle } from "../lib/occurrence-poller";
 import type { AgentSummary, ChatMessage, Feedback, Reminder, ReminderInput, ReminderOccurrence } from "../types";
 
-const sessionStorageKey = "flowmind.csnf.session";
-
 export function useAgentsWorkspace() {
   const [agents, setAgents] = useState<readonly AgentSummary[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -57,7 +55,7 @@ export function useAgentsWorkspace() {
 
         setSelectedAgentId(initialAgent.id);
         await refreshAgentData(initialAgent.id);
-        const storedSession = window.localStorage.getItem(sessionStorageKey);
+        const storedSession = window.localStorage.getItem(sessionStorageKey(initialAgent));
 
         if (storedSession) {
           const session = await agentsApi.getSession(storedSession);
@@ -68,7 +66,7 @@ export function useAgentsWorkspace() {
         }
       } catch (error) {
         setApiConnected(false);
-        window.localStorage.removeItem(sessionStorageKey);
+      window.localStorage.removeItem("flowmind.csnf.session");
         setFeedback({ kind: "error", message: readError(error) });
       } finally {
         setLoading(false);
@@ -113,7 +111,10 @@ export function useAgentsWorkspace() {
     try {
       const response = await agentsApi.sendMessage(selectedAgentId, normalized, sessionId);
       setApiConnected(true);
-      window.localStorage.setItem(sessionStorageKey, response.sessionId);
+      const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
+      if (selectedAgent) {
+        window.localStorage.setItem(sessionStorageKey(selectedAgent), response.sessionId);
+      }
       setSessionId(response.sessionId);
       const session = await agentsApi.getSession(response.sessionId);
       setMessages(session.messages);
@@ -123,7 +124,7 @@ export function useAgentsWorkspace() {
     } finally {
       setSending(false);
     }
-  }, [selectedAgentId, sending, sessionId]);
+  }, [agents, selectedAgentId, sending, sessionId]);
 
   const saveReminder = useCallback(async (input: ReminderInput, id?: string) => {
     try {
@@ -164,6 +165,10 @@ export function useAgentsWorkspace() {
     agents, apiConnected, deleteReminder, feedback, loading, messages, occurrencePollingError, occurrences, reminders,
     saveReminder, selectedAgentId, sending, sendMessage, toggleReminder,
   };
+}
+
+function sessionStorageKey(agent: AgentSummary): string {
+  return `flowmind.csnf.session.${agent.conversationProvider}.${agent.aiModel.model}`;
 }
 
 function readError(error: unknown): string {

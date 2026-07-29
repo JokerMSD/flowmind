@@ -10,12 +10,14 @@ export function ChatPanel({
   connected,
   messages,
   onSend,
+  providerLabel,
   sending,
 }: {
   readonly agentName: string;
   readonly connected: boolean;
   readonly messages: readonly ChatMessage[];
   readonly onSend: (message: string) => Promise<void>;
+  readonly providerLabel: string;
   readonly sending: boolean;
 }): React.ReactElement {
   const [message, setMessage] = useState("");
@@ -39,7 +41,7 @@ export function ChatPanel({
       <header className="panel-heading">
         <div><span className="eyebrow">Conversa</span><h2>{agentName}</h2></div>
         <span className={`status-dot ${connected ? "online" : "offline"}`}>
-          {connected ? "Online local" : "Offline local"}
+          {connected ? providerLabel : "IA local indisponivel"}
         </span>
       </header>
       <div className="message-list" aria-live="polite">
@@ -66,7 +68,7 @@ export function ChatPanel({
               void submit();
             }
           }}
-          placeholder="Converse com o CSNF..."
+          placeholder="Converse com o CSNF usando IA local..."
           rows={2}
           value={message}
         />

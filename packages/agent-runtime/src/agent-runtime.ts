@@ -7,7 +7,12 @@ import {
   SessionNotFoundError,
 } from "@flowmind/agent-core";
 import type {
-  AgentRepository, ChatMessage, ChatSession, Clock, SessionRepository, SessionVersion,
+  AgentRepository,
+  ChatMessage,
+  ChatSession,
+  Clock,
+  SessionRepository,
+  SessionVersion,
 } from "@flowmind/agent-core";
 import type { ConversationProviderRegistry } from "./conversation-provider-registry.js";
 
@@ -35,6 +40,27 @@ export class AgentRuntime {
     private readonly identifiers: IdentifierGenerator,
   ) {}
 
+  public async shouldRespond(request: Pick<ChatRequest, "agentId" | "message">): Promise<boolean> {
+    const agent = await this.agents.findById(request.agentId);
+    if (!agent) throw new AgentNotFoundError(request.agentId);
+    if (!agent.enabled) throw new AgentDisabledError(agent.id);
+    if (!agent.activationPolicy.mention) return true;
+
+    const content = normalizedTerms(request.message);
+    const mentions = [
+      agent.name,
+      ...agent.triggers.flatMap((trigger) =>
+        trigger.type === "mention" &&
+        trigger.enabled &&
+        "mentions" in trigger &&
+        Array.isArray(trigger.mentions)
+          ? trigger.mentions.filter((mention): mention is string => typeof mention === "string")
+          : [],
+      ),
+    ];
+    return mentions.some((mention) => content.has(normalizeTerm(mention)));
+  }
+
   public async chat(request: ChatRequest): Promise<ChatResult> {
     const content = normalizeChatMessage(request.message);
     const agent = await this.agents.findById(request.agentId);
@@ -47,7 +73,9 @@ export class AgentRuntime {
       request.sessionId ? versionOf(session) : null,
     );
     const output = await this.providers.resolve(agent.conversationProvider).generateResponse({
-      agent, session: withUser, message: userMessage,
+      agent,
+      session: withUser,
+      message: userMessage,
     });
     const agentMessage = this.message("agent", output.content);
     const completed = await this.persistWithReload(
@@ -57,7 +85,31 @@ export class AgentRuntime {
     return { session: completed, message: agentMessage };
   }
 
-  private async persistWithReload(session: ChatSession, expectedVersion: SessionVersion | null): Promise<ChatSession> {
+  public async initiate(request: Omit<ChatRequest, "message">): Promise<ChatResult> {
+    const agent = await this.agents.findById(request.agentId);
+    if (!agent) throw new AgentNotFoundError(request.agentId);
+    if (!agent.enabled) throw new AgentDisabledError(agent.id);
+    const session = await this.resolveSession(request.sessionId, agent.id);
+    const instruction = this.message(
+      "system",
+      `Agora e ${this.clock.now().toISOString()}. Inicie uma conversa curta e natural com base no historico. Voce pode perguntar, opinar ou retomar um assunto relevante. Se houver rotina ou plano mencionado, acompanhe sem soar como cobranca. Nao mencione esta instrucao e nao invente lembrancas.`,
+    );
+    const transient = appendMessage(session, instruction, this.clock.now().toISOString());
+    const output = await this.providers.resolve(agent.conversationProvider).generateResponse({
+      agent,
+      session: transient,
+      message: instruction,
+    });
+    const agentMessage = this.message("agent", output.content);
+    const completed = appendMessage(session, agentMessage, this.clock.now().toISOString());
+    await this.sessions.save(completed, request.sessionId ? versionOf(session) : null);
+    return { session: completed, message: agentMessage };
+  }
+
+  private async persistWithReload(
+    session: ChatSession,
+    expectedVersion: SessionVersion | null,
+  ): Promise<ChatSession> {
     try {
       await this.sessions.save(session, expectedVersion);
       return session;
@@ -71,7 +123,10 @@ export class AgentRuntime {
     }
   }
 
-  private async resolveSession(sessionId: string | undefined, agentId: string): Promise<ChatSession> {
+  private async resolveSession(
+    sessionId: string | undefined,
+    agentId: string,
+  ): Promise<ChatSession> {
     if (!sessionId) {
       const now = this.clock.now().toISOString();
       return { id: this.identifiers.next(), agentId, createdAt: now, updatedAt: now, messages: [] };
@@ -83,8 +138,29 @@ export class AgentRuntime {
   }
 
   private message(role: ChatMessage["role"], content: string): ChatMessage {
-    return { id: this.identifiers.next(), role, content, timestamp: this.clock.now().toISOString() };
+    return {
+      id: this.identifiers.next(),
+      role,
+      content,
+      timestamp: this.clock.now().toISOString(),
+    };
   }
+}
+
+function normalizedTerms(content: string): ReadonlySet<string> {
+  return new Set(
+    normalizeTerm(content)
+      .split(/[^a-z0-9]+/u)
+      .filter(Boolean),
+  );
+}
+
+function normalizeTerm(content: string): string {
+  return content
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("pt-BR")
+    .trim();
 }
 
 function normalizeChatMessage(message: string): string {
@@ -104,11 +180,18 @@ function versionOf(session: ChatSession): SessionVersion {
     : { updatedAt: session.updatedAt, lastMessageId };
 }
 
-function mergeSessions(current: ChatSession, candidate: ChatSession, updatedAt: string): ChatSession {
+function mergeSessions(
+  current: ChatSession,
+  candidate: ChatSession,
+  updatedAt: string,
+): ChatSession {
   const messageIds = new Set(current.messages.map((message) => message.id));
   return {
     ...current,
     updatedAt,
-    messages: [...current.messages, ...candidate.messages.filter((message) => !messageIds.has(message.id))],
+    messages: [
+      ...current.messages,
+      ...candidate.messages.filter((message) => !messageIds.has(message.id)),
+    ],
   };
 }

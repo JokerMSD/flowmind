@@ -35,7 +35,10 @@ export function AgentsWorkspace(): React.ReactElement {
           <a href="#reminders">Lembretes</a>
           <a href="http://localhost:3000">Editor de workflows</a>
         </nav>
-        <div className="local-note"><strong>Runtime local</strong><span>Provider fake · Persistencia JSON</span></div>
+        <div className="local-note">
+          <strong>IA local</strong>
+          <span>{providerLabel(agent.conversationProvider, agent.aiModel.model)} · Persistencia JSON</span>
+        </div>
       </aside>
       <div className="agents-content">
         <header className="topbar">
@@ -50,6 +53,7 @@ export function AgentsWorkspace(): React.ReactElement {
           <div id="conversation">
             <ChatPanel
               agentName={agent.name}
+              providerLabel={providerLabel(agent.conversationProvider, agent.aiModel.model)}
               connected={workspace.apiConnected && agent.enabled}
               messages={workspace.messages}
               onSend={workspace.sendMessage}
@@ -70,4 +74,9 @@ export function AgentsWorkspace(): React.ReactElement {
       </div>
     </main>
   );
+}
+
+function providerLabel(provider: string, model: string): string {
+  if (provider !== "ollama") return "Provider de contingencia";
+  return model.startsWith("gemma4") ? "Gemma 4 via Ollama" : `${model} via Ollama`;
 }

@@ -13,6 +13,7 @@ import {
   ConversationProviderRegistry,
   FakeConversationProvider,
   InAppReminderDeliveryProvider,
+  OllamaConversationProvider,
   ReminderDeliveryProviderRegistry,
   ReminderScheduler,
   ReminderService,
@@ -30,7 +31,18 @@ export function createAgentContainer(environment: NodeJS.ProcessEnv = process.en
   const clock = new SystemClock();
   const identifiers = { next: randomUUID };
   const providers = new ConversationProviderRegistry();
-  providers.register(new FakeConversationProvider());
+  const fallbackProvider = new FakeConversationProvider();
+  providers.register(fallbackProvider);
+  providers.register(
+    new OllamaConversationProvider({
+      ...(environment.OLLAMA_BASE_URL === undefined
+        ? {}
+        : { baseUrl: environment.OLLAMA_BASE_URL }),
+      ...(environment.OLLAMA_MODEL === undefined ? {} : { model: environment.OLLAMA_MODEL }),
+      timeoutMs: readPositiveInteger(environment.OLLAMA_TIMEOUT_MS, 120_000),
+      fallback: fallbackProvider,
+    }),
+  );
 
   const runtime = new AgentRuntime(agents, sessions, providers, clock, identifiers);
   const reminderService = new ReminderService(agents, reminders, clock, identifiers);
@@ -53,7 +65,24 @@ export function createAgentContainer(environment: NodeJS.ProcessEnv = process.en
   return {
     agents,
     initialize: async () => {
-      await seedCsnf(agents);
+      const csnf = await seedCsnf(agents);
+      if (environment.FLOWMIND_AI_PROVIDER === "ollama") {
+        await agents.save({
+          ...csnf,
+          conversationProvider: "ollama",
+          aiModel: {
+            provider: "ollama",
+            model: environment.OLLAMA_MODEL ?? "gemma4:e2b-it-qat",
+            settings: {
+              baseUrl: environment.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
+            },
+          },
+          activationPolicy: {
+            ...csnf.activationPolicy,
+            mention: true,
+          },
+        });
+      }
       await scheduler.start();
     },
     occurrences,
