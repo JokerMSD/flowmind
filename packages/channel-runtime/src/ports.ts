@@ -19,7 +19,9 @@ export interface AgentChatResult {
 }
 
 export interface AgentRuntimePort {
+  shouldRespond(request: Pick<AgentChatRequest, "agentId" | "message">): Promise<boolean>;
   chat(request: AgentChatRequest): Promise<AgentChatResult>;
+  initiate?(request: Omit<AgentChatRequest, "message">): Promise<AgentChatResult>;
 }
 
 export interface Clock {

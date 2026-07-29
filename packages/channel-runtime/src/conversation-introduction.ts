@@ -8,6 +8,11 @@ import type {
 export const CSNF_INTRODUCTION =
   'Oi! Eu sou o CSNF e vou te ajudar daqui para frente. Sempre que quiser falar comigo, basta mencionar meu nome. Por exemplo: "Ei, CSNF..." ou "Tem como fazer tal coisa, CSNF?"';
 
+export function formatCsnfMessage(content: string): string {
+  const normalized = content.trim();
+  return normalized.startsWith("[CSNF]") ? normalized : `[CSNF] ${normalized}`;
+}
+
 export async function ensureCsnfIntroduction(input: {
   readonly connection: ChannelConnection;
   readonly conversation: ChannelConversation;
@@ -24,7 +29,7 @@ export async function ensureCsnfIntroduction(input: {
       channelId: input.conversation.channelId,
       externalId: input.conversation.externalConversationId,
     },
-    content: CSNF_INTRODUCTION,
+    content: formatCsnfMessage(CSNF_INTRODUCTION),
   });
   const introducedAt = sent.sentAt || input.now().toISOString();
   const updated: ChannelConversation = {

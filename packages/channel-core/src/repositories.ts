@@ -21,6 +21,10 @@ export interface ChannelConversationRepository {
 
 export interface ChannelMessageRepository {
   findById(id: string): Promise<ChannelMessage | undefined>;
+  findByProviderMessageId?(
+    connectionId: string,
+    providerMessageId: string,
+  ): Promise<ChannelMessage | undefined>;
   listByConversation(conversationId: string): Promise<readonly ChannelMessage[]>;
   save(message: ChannelMessage): Promise<void>;
 }

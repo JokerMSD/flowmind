@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 export class JsonPersistenceError extends Error {
@@ -88,10 +88,27 @@ export class JsonStore<T> {
   private async writeAtomically(value: T): Promise<void> {
     const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await rename(temporaryPath, this.filePath);
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await rename(temporaryPath, this.filePath);
+          return;
+        } catch (error) {
+          if (!isPermissionError(error) || attempt >= 4) throw error;
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 25 * 2 ** attempt));
+        }
+      }
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 }
 
 function isNotFound(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function isPermissionError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === "EPERM";
 }

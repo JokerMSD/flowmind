@@ -159,9 +159,16 @@ class MemorySettings implements ChannelSettingsRepository {
 
 class FakeAgents implements AgentRuntimePort {
   public readonly requests: AgentChatRequest[] = [];
+  public activationDetected = true;
+  public chatHandler: ((request: AgentChatRequest) => Promise<AgentChatResult>) | undefined;
+
+  public async shouldRespond(): Promise<boolean> {
+    return this.activationDetected;
+  }
 
   public async chat(request: AgentChatRequest): Promise<AgentChatResult> {
     this.requests.push(request);
+    if (this.chatHandler) return this.chatHandler(request);
     return {
       session: { id: request.sessionId ?? "agent-session-1" },
       message: { content: `reply:${request.message}` },
@@ -414,7 +421,11 @@ test("processor creates a complete private conversation and processes the extern
     lastMessageAt: BASE_TIME,
     lastInboundAt: BASE_TIME,
     lastOutboundAt: BASE_TIME,
-    metadata: { csnfIntroducedAt: BASE_TIME },
+    metadata: {
+      agentActiveUntil: "2026-07-26T12:30:00.000Z",
+      agentActivatedAt: BASE_TIME,
+      csnfIntroducedAt: BASE_TIME,
+    },
     createdAt: BASE_TIME,
     updatedAt: BASE_TIME,
   });
@@ -449,6 +460,21 @@ test("safe settings disable private automation without agent or send side effect
   assert.equal(context.agents.requests.length, 0);
   assert.equal(context.provider.sent.length, 0);
   assert.equal([...context.externalMessages.values.values()][0]?.status, "ignored");
+});
+
+test("persisted messages keep the provider timestamp instead of ingestion time", async () => {
+  const context = fixture(createDefaultChannelSettings("csnf"));
+  const occurredAt = "2026-07-20T09:30:00.000Z";
+
+  await context.processor.process(
+    inbound({
+      occurredAt,
+      historical: true,
+      providerMessageId: "historical-message",
+    }),
+  );
+
+  assert.equal([...context.messages.values.values()][0]?.createdAt, occurredAt);
 });
 
 test("inbox updates existing conversations while automation remains disabled", async () => {
@@ -521,6 +547,38 @@ test("pauseAll and every non-enabled authorization mode prevent automatic replie
   }
 });
 
+test("handoff while the agent is responding prevents send and preserves the new mode", async () => {
+  const context = fixture();
+  let releaseChat: ((result: AgentChatResult) => void) | undefined;
+  context.agents.chatHandler =
+    () =>
+      new Promise<AgentChatResult>((resolve) => {
+        releaseChat = resolve;
+      });
+
+  const processing = context.processor.process(inbound());
+  while (!releaseChat) await new Promise((resolve) => setImmediate(resolve));
+  const conversation = [...context.conversations.values.values()][0];
+  assert.ok(conversation);
+  await context.conversations.save({
+    ...conversation,
+    automationMode: "manual",
+    updatedAt: "2026-07-26T12:00:01.000Z",
+  });
+  releaseChat({
+    session: { id: "agent-session-1" },
+    message: { content: "Esta resposta nao deve ser enviada" },
+  });
+
+  assert.deepEqual(await processing, {
+    status: "ignored",
+    reason: "conversation-mode",
+    conversationId: conversation.id,
+  });
+  assert.equal(context.provider.sent.length, 0);
+  assert.equal(context.conversations.values.get(conversation.id)?.automationMode, "manual");
+});
+
 test("new private conversations default disabled and new groups default blocked", async () => {
   const privateContext = fixture(
     enabledSettings({ defaultConversationMode: "disabled", allowGroups: true }),
@@ -591,6 +649,20 @@ test("deduplication uses connectionId plus providerMessageId", async () => {
   );
   assert.equal(context.agents.requests.length, 2);
   assert.equal(context.externalMessages.values.size, 2);
+});
+
+test("transient connection state does not consume the provider message id", async () => {
+  const context = fixture();
+  const current = context.connections.values.get("connection-1");
+  assert.ok(current);
+  context.connections.values.set("connection-1", { ...current, status: "reconnecting" });
+
+  const deferred = await context.processor.process(inbound());
+  assert.deepEqual(deferred, { status: "ignored", reason: "connection-not-ready" });
+  context.connections.values.set("connection-1", { ...current, status: "connected" });
+
+  const retried = await context.processor.process(inbound());
+  assert.equal(retried.status, "processed");
 });
 
 test("auto and global rate limits are independent", async () => {
@@ -666,6 +738,43 @@ test("AgentRuntime session is reused for subsequent messages", async () => {
       },
     },
   ]);
+});
+
+test("private engagement continues without repeated mention and yields when the owner replies", async () => {
+  const context = fixture();
+  await context.processor.process(inbound({ content: "CSNF, pode me ajudar?" }));
+  context.agents.activationDetected = false;
+
+  const followUp = await context.processor.process(
+    inbound({ providerMessageId: "provider-message-2", content: "Como eu faco isso?" }),
+  );
+  assert.equal(followUp.status, "processed");
+
+  const ownerReply = await context.processor.process(
+    inbound({
+      providerMessageId: "provider-message-3",
+      content: "Eu assumo daqui.",
+      fromSelf: true,
+    }),
+  );
+  assert.deepEqual(ownerReply, {
+    status: "ignored",
+    reason: "from-self",
+    conversationId: "id-2",
+  });
+  const afterHandoff = context.conversations.values.get("id-2");
+  assert.equal(afterHandoff?.metadata.agentActiveUntil, undefined);
+  assert.equal(afterHandoff?.sessionId, "agent-session-1");
+
+  const directedToOwner = await context.processor.process(
+    inbound({ providerMessageId: "provider-message-4", content: "Pode continuar voce." }),
+  );
+  assert.deepEqual(directedToOwner, {
+    status: "ignored",
+    reason: "activation-policy",
+    conversationId: "id-2",
+  });
+  assert.equal(context.agents.requests.length, 2);
 });
 
 test("send failures persist failed message and external-record statuses", async () => {

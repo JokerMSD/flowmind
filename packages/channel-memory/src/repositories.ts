@@ -138,6 +138,10 @@ export class JsonChannelConversationRepository implements ChannelConversationRep
   public async save(conversation: ChannelConversation): Promise<void> {
     await upsert(this.collection, conversation);
   }
+
+  public async clear(): Promise<void> {
+    await this.collection.mutate(() => []);
+  }
 }
 
 export class JsonChannelMessageRepository implements ChannelMessageRepository {
@@ -167,9 +171,33 @@ export class JsonChannelMessageRepository implements ChannelMessageRepository {
     );
   }
 
+  public async list(options?: MessageListOptions): Promise<readonly ChannelMessage[]> {
+    await this.cleanup();
+    return sort(
+      (await this.collection.read()).filter(
+        (item) =>
+          (options?.direction === undefined || item.direction === options.direction) &&
+          (options?.status === undefined || item.status === options.status) &&
+          matches(options?.search, item.id, item.content, item.providerMessageId ?? ""),
+      ),
+      options?.order,
+    );
+  }
+
   public async findById(id: string): Promise<ChannelMessage | undefined> {
     await this.cleanup();
     return (await this.collection.read()).find((item) => item.id === id);
+  }
+
+  public async findByProviderMessageId(
+    connectionId: string,
+    providerMessageId: string,
+  ): Promise<ChannelMessage | undefined> {
+    await this.cleanup();
+    return (await this.collection.read()).find(
+      (item) =>
+        item.connectionId === connectionId && item.providerMessageId === providerMessageId,
+    );
   }
 
   public async save(message: ChannelMessage): Promise<void> {
@@ -184,6 +212,10 @@ export class JsonChannelMessageRepository implements ChannelMessageRepository {
     await this.collection.mutate((items) =>
       items.filter((item) => dateValue(item.createdAt) >= cutoff),
     );
+  }
+
+  public async clear(): Promise<void> {
+    await this.collection.mutate(() => []);
   }
 
   private now(): Date {
@@ -240,6 +272,10 @@ export class JsonExternalMessageRecordRepository implements ExternalMessageRecor
     await this.collection.mutate((items) => this.applyRetention(items));
   }
 
+  public async clear(): Promise<void> {
+    await this.collection.mutate(() => []);
+  }
+
   private applyRetention(items: ExternalMessageRecord[]): ExternalMessageRecord[] {
     const maxAge = this.options.retention?.externalMessagesMaxAgeMs;
     if (maxAge === undefined) return items;
@@ -291,6 +327,14 @@ export class JsonChannelMemory {
 
   public async cleanup(): Promise<void> {
     await Promise.all([this.messages.cleanup(), this.externalMessages.cleanup()]);
+  }
+
+  public async clearConversationData(): Promise<void> {
+    await Promise.all([
+      this.conversations.clear(),
+      this.messages.clear(),
+      this.externalMessages.clear(),
+    ]);
   }
 }
 

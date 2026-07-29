@@ -23,12 +23,12 @@ export class ChannelRuntime {
   public constructor(
     private readonly connections: ChannelConnectionRepository,
     private readonly providers: ChannelProviderRegistry,
-    processor: ConversationProcessor,
+    private readonly processor: ConversationProcessor,
     private readonly options: ChannelRuntimeOptions = {},
   ) {
     this.queue = new BoundedQueue(
       async (message) => {
-        await processor.process(message);
+        await this.processor.process(message);
       },
       {
         capacity: options.queueCapacity ?? 100,
@@ -47,6 +47,10 @@ export class ChannelRuntime {
       try {
         await provider.connect(connection, {
           onMessage: async (message) => {
+            if (message.historical) {
+              await this.processor.process(message);
+              return;
+            }
             const offered = this.queue.enqueue(message);
             if (!offered.accepted) await this.options.onDropped?.(message);
           },
