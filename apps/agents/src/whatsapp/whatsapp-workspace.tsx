@@ -3,7 +3,7 @@
 import type React from "react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { whatsAppApi } from "./whatsapp-api";
+import { whatsAppApi, whatsAppMediaUrl } from "./whatsapp-api";
 import { toQrDataUrl } from "./qrcode";
 import { RemindersDialog } from "./reminders-dialog";
 import type {
@@ -25,6 +25,7 @@ const emptyConnection: WhatsAppConnection = {
   paused: false,
 };
 const modes: ConversationMode[] = ["enabled", "manual", "paused", "disabled", "blocked"];
+type InboxFilter = "all" | "unread" | "groups";
 const modeLabel: Record<ConversationMode, string> = {
   enabled: "Automacao ativa",
   manual: "Manual",
@@ -49,6 +50,20 @@ function readableTime(value?: string): string | null {
   return Number.isNaN(date.getTime())
     ? null
     : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function conversationTime(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Ontem";
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
 function messageDateKey(value?: string): string {
@@ -105,7 +120,9 @@ function Avatar({
     .map((part) => part[0]?.toUpperCase())
     .join("");
   return (
-    <span className={`wa-avatar ${size} ${fallback ? "" : "anonymous"}`}>
+    <span
+      className={`wa-avatar ${size} ${identity.avatarUrl || fallback ? "" : "anonymous"}`}
+    >
       {identity.avatarUrl ? (
         <img src={identity.avatarUrl} alt="" referrerPolicy="no-referrer" />
       ) : (
@@ -125,8 +142,9 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const [activeList, setActiveList] = useState<"conversations" | "contacts">("conversations");
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [unavailableMedia, setUnavailableMedia] = useState<ReadonlySet<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -140,18 +158,18 @@ export function WhatsAppWorkspace(): React.ReactElement {
   }, [selected]);
 
   const refresh = useCallback(
-    async (includeMessages = true) => {
+    async (includeMessages = true, includeContacts = true) => {
       const [nextConnection, nextConversations, nextContacts] = await Promise.all([
         whatsAppApi.connection(),
         whatsAppApi.conversations(
           activeList === "conversations" ? search : "",
-          activeList === "conversations" ? filter : "all",
+          "all",
         ),
-        whatsAppApi.contacts(connection.id),
+        includeContacts ? whatsAppApi.contacts(connection.id) : Promise.resolve(null),
       ]);
       setConnection(nextConnection);
       setConversations(nextConversations);
-      setContacts(nextContacts);
+      if (nextContacts) setContacts(nextContacts);
       const currentId = selectedId.current;
       const nextSelected = currentId
         ? (nextConversations.find((item) => item.id === currentId) ?? null)
@@ -160,7 +178,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
       if (includeMessages && nextSelected) setMessages(await whatsAppApi.messages(nextSelected.id));
       if (!nextSelected) setMessages([]);
     },
-    [activeList, connection.id, filter, search],
+    [activeList, connection.id, search],
   );
 
   useEffect(() => {
@@ -185,7 +203,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
     let failures = 0;
     const poll = async () => {
       try {
-        await refresh();
+        await refresh(true, false);
         failures = 0;
         if (!cancelled)
           setNotice((current) =>
@@ -196,7 +214,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
         if (!cancelled && failures === 1)
           setNotice("Nao foi possivel atualizar agora. Tentaremos novamente.");
       } finally {
-        if (!cancelled) timer = window.setTimeout(poll, Math.min(30000, 5000 * 2 ** failures));
+        if (!cancelled) timer = window.setTimeout(poll, Math.min(30_000, 1_000 * 2 ** failures));
       }
     };
     void poll();
@@ -250,9 +268,18 @@ export function WhatsAppWorkspace(): React.ReactElement {
       setDraft("");
     }, "Mensagem enviada.");
   };
-  const filterLabel = useMemo(
-    () => (filter === "all" ? "Todos os modos" : modeLabel[filter as ConversationMode]),
-    [filter],
+  const visibleConversations = useMemo(() => {
+    if (inboxFilter === "unread") return conversations.filter((item) => (item.unread ?? 0) > 0);
+    if (inboxFilter === "groups") return conversations.filter((item) => item.type === "group");
+    return conversations;
+  }, [conversations, inboxFilter]);
+  const unreadConversations = useMemo(
+    () => conversations.filter((item) => (item.unread ?? 0) > 0).length,
+    [conversations],
+  );
+  const groupConversations = useMemo(
+    () => conversations.filter((item) => item.type === "group").length,
+    [conversations],
   );
   const visibleContacts = useMemo(() => {
     const normalized = search.trim().toLocaleLowerCase("pt-BR");
@@ -269,6 +296,9 @@ export function WhatsAppWorkspace(): React.ReactElement {
     connection.status === "connected" &&
     selected.mode !== "blocked",
   );
+  const canFetchHistory =
+    connection.historySyncStatus === "complete" ||
+    connection.historySyncStatus === "paused";
 
   if (authenticated === null)
     return <main className="wa-loading">Carregando canal WhatsApp...</main>;
@@ -359,6 +389,26 @@ export function WhatsAppWorkspace(): React.ReactElement {
             Atualizar dados
           </button>
           <button
+            disabled={
+              busy ||
+              connection.status !== "connected" ||
+              !canFetchHistory
+            }
+            title={
+              canFetchHistory
+                ? "Buscar mensagens anteriores"
+                : "Disponivel apos a sincronizacao inicial"
+            }
+            onClick={() =>
+              void run(
+                () => whatsAppApi.fetchHistory(),
+                "Historico geral solicitado. A sincronizacao continuara em segundo plano.",
+              )
+            }
+          >
+            Buscar historico
+          </button>
+          <button
             className="wa-danger"
             disabled={busy || connection.status === "logged_out"}
             onClick={() => {
@@ -420,6 +470,38 @@ export function WhatsAppWorkspace(): React.ReactElement {
             {connection.error}
           </p>
         ) : null}
+        {connection.historySyncStatus === "syncing" ||
+        connection.historySyncStatus === "paused" ? (
+          <div
+            className={`wa-sync-progress ${
+              connection.historySyncStatus === "paused" ? "paused" : ""
+            }`}
+            role="status"
+          >
+            <div>
+              <strong>
+                {connection.historySyncStatus === "paused"
+                  ? "Sincronizacao pausada"
+                  : "Sincronizando conversas"}
+              </strong>
+              <span>
+                {connection.historySyncProgress === undefined
+                  ? `${conversations.length} conversas recebidas`
+                  : `${connection.historySyncProgress}%`}
+              </span>
+            </div>
+            <progress
+              max={100}
+              value={connection.historySyncProgress}
+              aria-label="Progresso da sincronizacao do WhatsApp"
+            />
+            <small>
+              {connection.historySyncStatus === "paused"
+                ? "O WhatsApp parou de enviar novos blocos. Buscar historico ja esta disponivel."
+                : "Mantenha o FlowMind aberto. A busca de historico sera liberada ao concluir."}
+            </small>
+          </div>
+        ) : null}
       </section>
       <section className="wa-workspace">
         <aside className="wa-conversations">
@@ -448,28 +530,33 @@ export function WhatsAppWorkspace(): React.ReactElement {
             onChange={(event) => setSearch(event.target.value)}
           />
           {activeList === "conversations" ? (
-            <>
-              <select
-                aria-label="Filtrar por modo"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
+            <div className="wa-inbox-filters" aria-label="Filtros de conversa">
+              <button
+                className={inboxFilter === "all" ? "active" : ""}
+                onClick={() => setInboxFilter("all")}
               >
-                <option value="all">Todos os modos</option>
-                {modes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {modeLabel[mode]}
-                  </option>
-                ))}
-              </select>
-              <p className="wa-filter-label">{filterLabel}</p>
-            </>
+                Tudo
+              </button>
+              <button
+                className={inboxFilter === "unread" ? "active" : ""}
+                onClick={() => setInboxFilter("unread")}
+              >
+                Não lidas {unreadConversations || ""}
+              </button>
+              <button
+                className={inboxFilter === "groups" ? "active" : ""}
+                onClick={() => setInboxFilter("groups")}
+              >
+                Grupos {groupConversations || ""}
+              </button>
+            </div>
           ) : (
             <p className="wa-filter-label">{visibleContacts.length} contatos sincronizados</p>
           )}
           <div className="wa-list">
             {activeList === "conversations" ? (
               <>
-                {conversations.map((item) => (
+                {visibleConversations.map((item) => (
                   <button
                     className={selected?.id === item.id ? "selected" : ""}
                     key={item.id}
@@ -477,14 +564,19 @@ export function WhatsAppWorkspace(): React.ReactElement {
                   >
                     <Avatar identity={item} />
                     <span className="wa-conversation-copy">
-                      <strong>{item.name}</strong>
+                      <span className="wa-conversation-heading">
+                        <strong>{item.name}</strong>
+                        <time className={item.unread ? "unread" : ""}>
+                          {conversationTime(item.updatedAt)}
+                        </time>
+                      </span>
                       <small>{item.preview ?? item.phone ?? "Sem mensagens"}</small>
-                      <em className={`wa-mode ${item.mode}`}>{modeLabel[item.mode]}</em>
                     </span>
+                    {item.pinned ? <span className="wa-pin" aria-label="Conversa fixada" /> : null}
                     {item.unread ? <b>{item.unread}</b> : null}
                   </button>
                 ))}
-                {!conversations.length ? (
+                {!visibleConversations.length ? (
                   <p className="wa-empty">Nenhuma conversa encontrada.</p>
                 ) : null}
               </>
@@ -566,6 +658,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
               </header>
               <div className="wa-messages" ref={messagesViewport}>
                 {messages.map((message, index) => {
+                  if (unavailableMedia.has(message.id) && !message.body.trim()) return null;
                   const previous = messages[index - 1];
                   const startsDay =
                     !previous || messageDateKey(previous.sentAt) !== messageDateKey(message.sentAt);
@@ -581,7 +674,48 @@ export function WhatsAppWorkspace(): React.ReactElement {
                       <div className={`wa-message ${message.direction}`}>
                         {showSender ? <strong>{message.sender}</strong> : null}
                         <div className="wa-message-content">
-                          <p>{message.body.trim() || "Midia nao disponivel"}</p>
+                          {message.media?.type === "image" ||
+                          message.media?.type === "sticker" ? (
+                            <img
+                              className="wa-message-media"
+                              src={whatsAppMediaUrl(message.media.url)}
+                              alt={message.body.trim() || "Imagem do WhatsApp"}
+                              onError={() =>
+                                setUnavailableMedia((current) => new Set(current).add(message.id))
+                              }
+                            />
+                          ) : null}
+                          {message.media?.type === "video" ? (
+                            <video
+                              className="wa-message-media"
+                              src={whatsAppMediaUrl(message.media.url)}
+                              controls
+                              preload="metadata"
+                              onError={() =>
+                                setUnavailableMedia((current) => new Set(current).add(message.id))
+                              }
+                            />
+                          ) : null}
+                          {message.media?.type === "audio" ? (
+                            <audio
+                              src={whatsAppMediaUrl(message.media.url)}
+                              controls
+                              preload="none"
+                              onError={() =>
+                                setUnavailableMedia((current) => new Set(current).add(message.id))
+                              }
+                            />
+                          ) : null}
+                          {message.media?.type === "document" ? (
+                            <a
+                              href={whatsAppMediaUrl(message.media.url)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {message.media.fileName ?? "Abrir documento"}
+                            </a>
+                          ) : null}
+                          {message.body.trim() ? <p>{message.body.trim()}</p> : null}
                           <span className="wa-message-meta">
                             {readableTime(message.sentAt) ?? ""}
                             {message.direction === "outgoing" ? (

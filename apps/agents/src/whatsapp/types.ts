@@ -21,6 +21,8 @@ export interface WhatsAppConnection {
   error?: string;
   globalEnabled: boolean;
   paused: boolean;
+  historySyncStatus?: "idle" | "syncing" | "complete" | "paused";
+  historySyncProgress?: number;
 }
 
 export interface Conversation {
@@ -67,6 +69,12 @@ export interface ConversationMessage {
   direction: "incoming" | "outgoing";
   sentAt?: string;
   sender?: string;
+  media?: {
+    url: string;
+    type: "image" | "video" | "audio" | "document" | "sticker";
+    mimeType: string;
+    fileName?: string;
+  };
 }
 
 export interface AdminSession {

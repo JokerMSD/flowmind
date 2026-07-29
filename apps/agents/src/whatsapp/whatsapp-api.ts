@@ -11,11 +11,19 @@ import type {
 
 const apiUrl = process.env.NEXT_PUBLIC_FLOWMIND_API_URL ?? "http://localhost:3001";
 
+export function whatsAppMediaUrl(path: string): string {
+  return `${apiUrl}${path}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers,
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { message?: string } | null;
@@ -54,6 +62,15 @@ function connectionFrom(payload: unknown): WhatsAppConnection {
     ...(typeof value.error === "string" ? { error: value.error } : {}),
     globalEnabled: Boolean(value.globalEnabled ?? value.enabled),
     paused: Boolean(value.paused ?? value.pauseAll),
+    historySyncStatus:
+      value.historySyncStatus === "syncing" ||
+      value.historySyncStatus === "complete" ||
+      value.historySyncStatus === "paused"
+        ? value.historySyncStatus
+        : "idle",
+    ...(typeof value.historySyncProgress === "number"
+      ? { historySyncProgress: value.historySyncProgress }
+      : {}),
   };
 }
 
@@ -138,6 +155,11 @@ export const whatsAppApi = {
       await request<ConversationMessage[] | { data: ConversationMessage[] }>(
         `/integrations/whatsapp/conversations/${encodeURIComponent(id)}/messages`,
       ),
+    ),
+  fetchHistory: () =>
+    request<{ requestedConversations: number; countPerConversation: number }>(
+      "/integrations/whatsapp/history",
+      { method: "POST" },
     ),
   setMode: (id: string, mode: ConversationMode) =>
     request<unknown>(`/integrations/whatsapp/conversations/${encodeURIComponent(id)}/mode`, {

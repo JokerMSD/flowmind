@@ -364,6 +364,33 @@
 .wa-qr-note {
   margin-left: auto;
 }
+.wa-sync-progress {
+  display: grid;
+  flex: 1 0 100%;
+  gap: 7px;
+  min-width: 0;
+}
+.wa-sync-progress > div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+.wa-sync-progress strong {
+  font-size: 12px;
+}
+.wa-sync-progress span,
+.wa-sync-progress small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.wa-sync-progress progress {
+  accent-color: var(--accent);
+  height: 7px;
+  width: 100%;
+}
+.wa-sync-progress.paused progress {
+  accent-color: #d6a73b;
+}
 .wa-workspace {
   display: grid;
   flex: 1;
@@ -444,6 +471,28 @@
   color: var(--muted);
   font-size: 11px;
   margin: 0;
+}
+.wa-inbox-filters {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+}
+.wa-inbox-filters button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 7px 12px;
+}
+.wa-inbox-filters button.active {
+  background: #0b3b31;
+  border-color: #176b58;
+  color: #e9f7f2;
 }
 .wa-list {
   min-height: 0;
@@ -532,7 +581,38 @@
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding-right: 28px;
+  padding-right: 38px;
+}
+.wa-conversation-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.wa-conversation-heading strong {
+  min-width: 0;
+}
+.wa-conversation-heading time {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+}
+.wa-conversation-heading time.unread {
+  color: var(--accent);
+}
+.wa-pin {
+  border-bottom: 6px solid #8c9aa2;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  height: 0;
+  position: absolute;
+  right: 13px;
+  top: 39px;
+  transform: rotate(45deg);
+  width: 2px;
 }
 .wa-list strong {
   overflow: hidden;
@@ -660,7 +740,22 @@
 .wa-message-content {
   align-items: flex-end;
   display: flex;
+  flex-wrap: wrap;
   gap: 9px;
+}
+.wa-message-media {
+  border-radius: 6px;
+  display: block;
+  max-height: 420px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.wa-message-content audio {
+  max-width: min(360px, 100%);
+}
+.wa-message-content > a {
+  color: #d9fdd3;
+  overflow-wrap: anywhere;
 }
 .wa-message-meta {
   align-items: center;
