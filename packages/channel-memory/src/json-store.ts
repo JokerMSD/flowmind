@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 export class JsonPersistenceError extends Error {
@@ -68,15 +68,48 @@ export class JsonStore<T> {
   }
 
   private async readValidated(): Promise<T> {
-    const contents = await readFile(this.filePath, "utf8");
+    const current = await this.parseValidated(this.filePath);
+    if (current !== undefined) return current;
+
+    const recovered = await this.recoverLatestSnapshot();
+    if (recovered !== undefined) return recovered;
+
+    throw new JsonPersistenceError("Invalid JSON document.", this.filePath);
+  }
+
+  private async parseValidated(filePath: string): Promise<T | undefined> {
+    const contents = await readFile(filePath, "utf8");
     let parsed: unknown;
     try {
       parsed = JSON.parse(contents) as unknown;
     } catch {
-      throw new JsonPersistenceError("Invalid JSON document.", this.filePath);
+      return undefined;
     }
-    this.assertValue(parsed);
-    return parsed;
+    return this.isValue(parsed) ? parsed : undefined;
+  }
+
+  private async recoverLatestSnapshot(): Promise<T | undefined> {
+    const directory = dirname(this.filePath);
+    const fileName = this.filePath.slice(directory.length + 1);
+    const prefix = `${fileName}.`;
+    const candidates = (await readdir(directory))
+      .filter((name) => name.startsWith(prefix) && name.endsWith(".tmp"))
+      .map((name) => resolve(directory, name));
+    const ordered = await Promise.all(
+      candidates.map(async (candidate) => ({
+        candidate,
+        modifiedAt: (await stat(candidate)).mtimeMs,
+      })),
+    );
+    ordered.sort((left, right) => right.modifiedAt - left.modifiedAt);
+
+    for (const { candidate } of ordered) {
+      const value = await this.parseValidated(candidate).catch(() => undefined);
+      if (value === undefined) continue;
+      await this.writeAtomically(value);
+      return value;
+    }
+    return undefined;
   }
 
   private assertValue(value: unknown): asserts value is T {

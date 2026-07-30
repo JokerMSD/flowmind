@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,11 +11,44 @@ import {
   JsonExternalMessageRecordRepository,
   JsonPersistenceError,
 } from "../dist/index.js";
+import { JsonStore } from "../dist/json-store.js";
 
 async function storage() {
   return mkdtemp(join(tmpdir(), "flowmind-channel-memory-"));
 }
 const now = "2026-07-26T00:00:00.000Z";
+
+const isStringArray = (value) =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+test("recupera o snapshot temporario valido mais recente", async (t) => {
+  const path = await storage();
+  t.after(() => rm(path, { recursive: true, force: true }));
+  const filePath = join(path, "messages.json");
+  const older = `${filePath}.1.older.tmp`;
+  const newer = `${filePath}.1.newer.tmp`;
+  await writeFile(filePath, Buffer.alloc(32));
+  await writeFile(older, '["older"]\n', "utf8");
+  await writeFile(newer, '["newer"]\n', "utf8");
+  await utimes(older, new Date(1_000), new Date(1_000));
+  await utimes(newer, new Date(2_000), new Date(2_000));
+
+  const store = new JsonStore(filePath, isStringArray, () => []);
+
+  assert.deepEqual(await store.read(), ["newer"]);
+  assert.deepEqual(JSON.parse(await readFile(filePath, "utf8")), ["newer"]);
+});
+
+test("mantem erro explicito quando nenhum snapshot temporario e valido", async (t) => {
+  const path = await storage();
+  t.after(() => rm(path, { recursive: true, force: true }));
+  const filePath = join(path, "messages.json");
+  await writeFile(filePath, Buffer.alloc(32));
+  await writeFile(`${filePath}.1.invalid.tmp`, "invalid", "utf8");
+  const store = new JsonStore(filePath, isStringArray, () => []);
+
+  await assert.rejects(() => store.read(), JsonPersistenceError);
+});
 
 function conversation(id, connectionId, externalConversationId) {
   return {

@@ -634,7 +634,7 @@ test("explicit logout is definitive, removes auth and never reconnects", async (
   assert.equal(events.statuses.at(-1)?.status, "logged_out");
 });
 
-test("remote logout and authentication failure clear QR/auth and do not reconnect", async (t) => {
+test("remote logout and authentication failure preserve auth and do not reconnect", async (t) => {
   const root = await storage();
   t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -661,9 +661,41 @@ test("remote logout and authentication failure clear QR/auth and do not reconnec
 
     assert.equal(provider.getSnapshot("whatsapp-personal")?.status, scenario.expected);
     assert.equal(provider.getSnapshot("whatsapp-personal")?.qr, undefined);
-    assert.equal(await repository.hasPersistedState(), false);
+    assert.equal(await repository.hasPersistedState(), true);
     assert.equal(factory.sockets.length, 1);
   }
+});
+
+test("forbidden stream errors reconnect without clearing auth", async (t) => {
+  const root = await storage();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repository = new AuthStateRepository(join(root, "whatsapp-personal"));
+  await repository.updateCreds({ registered: true });
+  const factory = new FakeSocketFactory();
+  const waits: number[] = [];
+  const events = capture();
+  const provider = new WhatsAppWebProvider({
+    authDirectory: root,
+    socketFactory: factory.create,
+    reconnectDelaysMs: [10],
+    maxReconnectAttempts: 1,
+    delay: (milliseconds) => {
+      waits.push(milliseconds);
+      return Promise.resolve();
+    },
+  });
+
+  await provider.connect(connection(), events.listener);
+  factory.sockets[0]?.ev.emit(
+    "connection.update",
+    closeUpdate(DisconnectReason.forbidden, "Stream Errored (ack)"),
+  );
+  await provider.onIdle("whatsapp-personal");
+
+  assert.deepEqual(waits, [10]);
+  assert.equal(factory.sockets.length, 2);
+  assert.equal(await repository.hasPersistedState(), true);
+  assert.equal(provider.getSnapshot("whatsapp-personal")?.status, "reconnecting");
 });
 
 test("disconnect ends the socket without deleting restored credentials", async (t) => {

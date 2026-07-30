@@ -149,7 +149,6 @@ function disconnectMessage(error: unknown): string {
 function isAuthenticationFailure(code: number | undefined): boolean {
   return (
     code === DisconnectReason.badSession ||
-    code === DisconnectReason.forbidden ||
     code === DisconnectReason.multideviceMismatch ||
     code === DisconnectReason.connectionReplaced
   );
@@ -618,14 +617,12 @@ export class WhatsAppSocketManager {
     if (code === DisconnectReason.loggedOut) {
       this.desired = false;
       this.terminal = true;
-      await this.authState.logout();
       await this.emitStatus("logged_out");
       return;
     }
     if (isAuthenticationFailure(code)) {
       this.desired = false;
       this.terminal = true;
-      await this.authState.logout();
       this.lastError = `WhatsApp authentication failed: ${errorMessage(error)}`;
       await this.emitStatus("error", this.lastError);
       return;
@@ -841,6 +838,13 @@ export class WhatsAppSocketManager {
       ...(historical ? { historical: true } : {}),
       ...(Object.keys(conversationMetadata).length === 0 ? {} : { conversationMetadata }),
     };
+    const senderContact = this.contacts.get(senderId);
+    const senderDisplayName =
+      senderContact &&
+      senderContact.name !== senderContact.id &&
+      !senderContact.name.endsWith("@lid")
+        ? senderContact.name
+        : addressed.senderDisplayName;
     const contact = this.contacts.get(conversationId);
     const contactName =
       contact && contact.name !== contact.id && !contact.name.endsWith("@lid")
@@ -859,6 +863,9 @@ export class WhatsAppSocketManager {
       ...addressed,
       ...(displayName === undefined ? {} : { displayName }),
       ...(avatarUrl === undefined ? {} : { avatarUrl }),
+      ...(addressed.conversationType === "group" && senderDisplayName
+        ? { senderDisplayName }
+        : {}),
     };
     try {
       await this.listener.onMessage(message);
@@ -985,10 +992,20 @@ export class WhatsAppSocketManager {
     }
 
     const pending = this.fetchConversationIdentity(jid, conversationType, resolvedDisplayName).then(
-      (identity) => ({
+      (identity) => {
+        const current = this.contacts.get(normalizeWhatsAppJid(externalId));
+        if (current && (identity.displayName || identity.avatarUrl)) {
+          this.contacts.set(current.id, {
+            ...current,
+            ...(identity.displayName ? { name: identity.displayName } : {}),
+            ...(identity.avatarUrl ? { avatarUrl: identity.avatarUrl } : {}),
+          });
+        }
+        return {
         ...identity,
         ...(contact?.avatarUrl ? { avatarUrl: contact.avatarUrl } : {}),
-      }),
+        };
+      },
     );
     this.identityCache.set(jid, pending);
     return pending;

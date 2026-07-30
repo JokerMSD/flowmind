@@ -73,17 +73,64 @@ opaco e o storage persiste somente seu hash.
 ## Validacao manual
 
 O teste automatizado nao substitui a validacao com telefone real. Antes de
-aprovar a sprint para uso real, executar e registrar:
+aprovar a sprint para uso real, executar e registrar cada cenario
+individualmente:
 
-1. Criar conta administrativa e autenticar.
-2. Gerar QR, parear um telefone e confirmar estado conectado.
-3. Receber e enviar mensagens em conversa privada.
-4. Confirmar atualizacao imediata, ordem da inbox, nomes, fotos e midias.
-5. Buscar historico uma vez e acompanhar progresso ate conclusao ou pausa.
-6. Alternar automacao, atendimento manual e pausa durante uma resposta.
-7. Enviar lembrete para contatos selecionados e verificar introducao unica.
-8. Reiniciar API e confirmar restauracao de sessao, chats e configuracoes.
-9. Encerrar a sessao e gerar um novo QR.
+| Cenario | Status | Evidencia | Observacao |
+| --- | --- | --- | --- |
+| Geracao e leitura do QR Code em telefone real | PASS | Confirmacao direta do usuario | Nao repetir o pareamento inicial nem encerrar a sessao existente |
+| Pareamento inicial | PASS | Confirmacao direta do usuario | Sessao real atualmente conectada deve ser preservada |
+| Estado conectado no painel | PASS | Confirmacao direta do usuario em painel local | Indicador conectado observado sem novo QR ou pareamento |
+| Envio real pelo FlowMind | PASS | Envio confirmado em conversa privada controlada, com entrega unica no telefone real | Saida refletida no painel sem duplicidade, erro ou resposta automatica |
+| Recebimento real no FlowMind | FAIL | Falha de autenticacao observada antes do recebimento externo | Provider classificou erro de stream como terminal e a sessao persistida foi removida |
+| Atualizacao e ordenacao da inbox | BLOCKED | Nao executado depois da perda da sessao | Requer sessao real conectada para repetir o bloco |
+| Persistencia apos reinicio | PENDENTE | A registrar | Reiniciar apenas os processos, preservando a autenticacao |
+| Resposta do CSNF | PENDENTE | A registrar | Validar em conversa habilitada |
+| Continuidade sem nova mencao | PENDENTE | A registrar | Validar dentro do contexto ativo |
+| Handoff humano/agente | PENDENTE | A registrar | Confirmar que o agente respeita a intervencao humana |
+| Modo `disabled` | PENDENTE | A registrar | Validar ausencia de resposta automatica |
+| Modo `enabled` | PENDENTE | A registrar | Validar resposta automatica |
+| Modo `paused` | PENDENTE | A registrar | Validar pausa temporaria |
+| Modo `manual` | PENDENTE | A registrar | Validar atendimento exclusivamente humano |
+| Modo `blocked` | PENDENTE | A registrar | Validar bloqueio de envio |
+| Protecao contra loops | PENDENTE | Mensagem manual propria nao provocou resposta automatica ou duplicidade | Evidencia basica obtida; aprovacao depende dos testes posteriores de CSNF e modos |
+| Ollama e fallback | PENDENTE | A registrar | Validar resposta local e indisponibilidade controlada |
+| Midias | PENDENTE | A registrar | Validar recebimento e exibicao dos tipos suportados |
+| Historico | PENDENTE | A registrar | Buscar uma vez e acompanhar o progresso |
+| Lembrete real | PENDENTE | A registrar | Enviar para contato selecionado |
+| Apresentacao enviada apenas uma vez | PENDENTE | A registrar | Confirmar primeira interacao e ausencia de repeticao |
+| Logout e novo pareamento | NAO AUTORIZADO | Nao executado | Teste destrutivo, separado e dependente de autorizacao explicita |
 
 Resultados nao executados com telefone real devem ser declarados como pendentes,
 nunca inferidos a partir dos testes automatizados.
+
+Durante esta validacao, a sessao WhatsApp conectada deve ser preservada. Nao
+executar logout, purga de autenticacao, encerramento de sessao ou novo
+pareamento sem autorizacao explicita.
+
+## Resultado consolidado da validacao manual
+
+```text
+QR Code em telefone real: PASS
+Pareamento inicial: PASS
+Demais fluxos ponta a ponta: conforme matriz individual
+```
+
+A Alpha 0.3 somente pode ser aprovada depois da validacao dos fluxos essenciais
+de envio, recebimento, agente, persistencia e lembrete.
+
+## Incidentes encontrados na validacao
+
+### Remocao automatica de autenticacao apos erro de stream
+
+- Resultado manual: `FAIL`.
+- Impacto: recebimento e atualizacao da inbox ficaram bloqueados.
+- Causa: falhas classificadas como autenticacao terminal chamavam a mesma
+  remocao de credenciais reservada ao logout explicito.
+- Correcao: somente logout solicitado explicitamente remove autenticacao;
+  erros de stream `forbidden` usam reconexao limitada e demais falhas terminais
+  preservam as credenciais.
+- Regressao: provider valida reconexao de `Stream Errored (ack)` sem apagar o
+  estado e preservacao do estado em logout remoto ou falha terminal.
+- Estado da sessao afetada: autenticacao ja removida pelo comportamento anterior;
+  nenhum novo QR ou pareamento foi iniciado.
