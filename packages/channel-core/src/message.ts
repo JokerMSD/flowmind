@@ -7,6 +7,7 @@ export interface InboundMessage {
   readonly conversationAddress: ChannelAddress;
   readonly conversationType: ConversationType;
   readonly senderAddress: ChannelAddress;
+  readonly senderDisplayName?: string;
   readonly displayName?: string;
   readonly avatarUrl?: string;
   readonly content: string;
@@ -42,6 +43,8 @@ export interface ChannelMessage {
   readonly content: string;
   readonly status: ChannelMessageStatus;
   readonly providerMessageId?: string;
+  readonly senderId?: string;
+  readonly senderDisplayName?: string;
   readonly replyToMessageId?: string;
   readonly error?: string;
   readonly createdAt: string;

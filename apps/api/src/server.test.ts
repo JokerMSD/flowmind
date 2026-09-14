@@ -29,6 +29,119 @@ import { createPasswordHasher } from "./admin/auth.js";
 import { WhatsAppWebReminderDeliveryProvider } from "./whatsapp/index.js";
 import type { WhatsAppProviderPort } from "./whatsapp/index.js";
 
+test("editor projects the existing CSNF and reminder runtimes", async () => {
+  await withServer(async (server) => {
+    const unauthorized = await server.inject({
+      method: "GET",
+      url: "/editor/runtime-workspaces",
+    });
+    assert.equal(unauthorized.statusCode, 401);
+
+    const cookie = await loginCookie(server);
+    const response = await server.inject({
+      method: "GET",
+      url: "/editor/runtime-workspaces",
+      headers: { cookie },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(
+      response.json().map((workspace: { id: string }) => workspace.id),
+      ["csnf", "reminders"],
+    );
+    assert.ok(
+      response.json()[0].nodes.some((node: { id: string }) => node.id === "conversation-provider"),
+    );
+  });
+});
+
+test("editor persists supported CSNF configuration and runs a local test", async () => {
+  await withServer(async (server) => {
+    const cookie = await loginCookie(server);
+    const headers = { cookie };
+    const updated = await server.inject({
+      method: "PATCH",
+      url: "/editor/runtime-workspaces/csnf",
+      headers,
+      payload: {
+        description: "Companheiro de treino local.",
+        speechStyle: "curto e direto",
+        humor: "leve",
+        traits: ["atento", "pratico"],
+        mention: true,
+        canInitiateConversation: false,
+        cooldownMinutes: 15,
+        enabled: true,
+      },
+    });
+    assert.equal(updated.statusCode, 200);
+    const agentNode = updated.json().nodes.find((node: { id: string }) => node.id === "csnf-agent");
+    assert.equal(agentNode.config.speechStyle, "curto e direto");
+
+    const addedModule = await server.inject({
+      method: "POST",
+      url: "/editor/runtime-workspaces/csnf/modules",
+      headers,
+      payload: { type: "agent.instructions" },
+    });
+    assert.equal(addedModule.statusCode, 200);
+    assert.ok(
+      addedModule.json().nodes.some((node: { id: string }) => node.id === "custom-instructions"),
+    );
+
+    const configuredModule = await server.inject({
+      method: "PATCH",
+      url: "/editor/runtime-workspaces/csnf",
+      headers,
+      payload: { customInstructions: "Sempre termine com uma recomendacao pratica." },
+    });
+    assert.equal(configuredModule.statusCode, 200);
+    const instructionNode = configuredModule
+      .json()
+      .nodes.find((node: { id: string }) => node.id === "custom-instructions");
+    assert.equal(
+      instructionNode.config.customInstructions,
+      "Sempre termine com uma recomendacao pratica.",
+    );
+
+    const testResponse = await server.inject({
+      method: "POST",
+      url: "/editor/runtime-workspaces/csnf/test",
+      headers,
+      payload: { message: "Ola" },
+    });
+    assert.equal(testResponse.statusCode, 200);
+    assert.equal(typeof testResponse.json().message, "string");
+
+    const continuedTest = await server.inject({
+      method: "POST",
+      url: "/editor/runtime-workspaces/csnf/test",
+      headers,
+      payload: { message: "Continue", sessionId: testResponse.json().sessionId },
+    });
+    assert.equal(continuedTest.statusCode, 200);
+    assert.equal(continuedTest.json().sessionId, testResponse.json().sessionId);
+
+    const removedModule = await server.inject({
+      method: "DELETE",
+      url: "/editor/runtime-workspaces/csnf/modules/custom-instructions",
+      headers,
+    });
+    assert.equal(removedModule.statusCode, 200);
+    assert.equal(
+      removedModule.json().nodes.some((node: { id: string }) => node.id === "custom-instructions"),
+      false,
+    );
+
+    const invalid = await server.inject({
+      method: "PATCH",
+      url: "/editor/runtime-workspaces/csnf",
+      headers,
+      payload: { cooldownMinutes: -1 },
+    });
+    assert.equal(invalid.statusCode, 400);
+  });
+});
+
 test("agent chat persists a session and validates empty messages", async () => {
   await withServer(async (server) => {
     const cookie = await loginCookie(server);

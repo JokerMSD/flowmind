@@ -5,6 +5,7 @@ export {
   createWhatsAppPersonalConnectionSeed,
   WHATSAPP_PERSONAL_CONNECTION_ID,
   WHATSAPP_WEB_PROVIDER_ID,
+  WHATSAPP_WEBJS_PROVIDER_ID,
 } from "./connection.js";
 export type {
   ChannelAddress,

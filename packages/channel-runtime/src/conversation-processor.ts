@@ -350,6 +350,14 @@ export class ConversationProcessor {
       content: inbound.content,
       status: inbound.fromSelf ? "sent" : "received",
       providerMessageId: inbound.providerMessageId,
+      ...(inbound.conversationType === "group"
+        ? {
+            senderId: inbound.senderAddress.externalId,
+            ...(inbound.senderDisplayName
+              ? { senderDisplayName: inbound.senderDisplayName }
+              : {}),
+          }
+        : {}),
       createdAt: inbound.occurredAt,
     };
   }

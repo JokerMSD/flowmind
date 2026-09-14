@@ -145,8 +145,7 @@ function registerPrefix(
       );
       const chatOrder = new Map(chats.map((chat, index) => [chat.externalId, index]));
       const chatByExternalId = new Map(chats.map((chat) => [chat.externalId, chat]));
-      return [...filtered]
-        .sort((left, right) => {
+      const ordered = [...filtered].sort((left, right) => {
           const leftOrder =
             chatOrder.get(left.normalizedPhone ?? left.externalConversationId) ??
             Number.MAX_SAFE_INTEGER;
@@ -155,7 +154,11 @@ function registerPrefix(
             Number.MAX_SAFE_INTEGER;
           if (leftOrder !== rightOrder) return leftOrder - rightOrder;
           return conversationActivity(right).localeCompare(conversationActivity(left));
-        })
+        });
+      const hydrated = await container.hydrateConversationIdentities(ordered.slice(0, 60));
+      const hydratedById = new Map(hydrated.map((conversation) => [conversation.id, conversation]));
+      return ordered
+        .map((conversation) => hydratedById.get(conversation.id) ?? conversation)
         .map((conversation) => {
           const payload = conversationPayload(conversation);
           const chat = chatByExternalId.get(
@@ -224,9 +227,37 @@ function registerPrefix(
           ...(avatarUrl === undefined ? {} : { avatarUrl }),
         });
       }
-      return [...merged.values()]
+      const ordered = [...merged.values()]
         .filter((contact) => isUsableContact(contact.phone ?? contact.id))
         .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+      const resolveIdentity = container.provider.resolveConversationIdentity?.bind(
+        container.provider,
+      );
+      if (!resolveIdentity) return ordered;
+      const enriched = await Promise.all(
+        ordered.slice(0, 80).map(async (contact) => {
+          if (hasUsefulContactName(contact.name, contact.phone ?? contact.id) && contact.avatarUrl) {
+            return contact;
+          }
+          try {
+            const identity = await resolveIdentity(
+              connectionId,
+              contact.phone ?? contact.id,
+              "private",
+              contact.name,
+            );
+            return {
+              ...contact,
+              ...(identity.displayName ? { name: identity.displayName } : {}),
+              ...(identity.avatarUrl ? { avatarUrl: identity.avatarUrl } : {}),
+            };
+          } catch {
+            return contact;
+          }
+        }),
+      );
+      const enrichedById = new Map(enriched.map((contact) => [contact.id, contact]));
+      return ordered.map((contact) => enrichedById.get(contact.id) ?? contact);
     }),
   );
 
@@ -455,6 +486,16 @@ function isUsableContact(value: string): boolean {
   return /^\d{8,15}$/.test(normalized);
 }
 
+function hasUsefulContactName(name: string, identity: string): boolean {
+  const normalized = name.trim();
+  return (
+    normalized.length > 0 &&
+    normalized !== identity &&
+    !normalized.endsWith("@lid") &&
+    !/^\+?[\d\s().-]+$/.test(normalized)
+  );
+}
+
 function messagePayload(
   message: ChannelMessage,
   mediaUrl?: string,
@@ -465,6 +506,11 @@ function messagePayload(
     body: message.content,
     direction: message.direction === "inbound" ? "incoming" : "outgoing",
     sentAt: message.createdAt,
+    ...(message.senderDisplayName
+      ? { sender: message.senderDisplayName }
+      : message.senderId
+        ? { sender: message.senderId }
+        : {}),
     ...(mediaUrl === undefined || media === undefined
       ? {}
       : {

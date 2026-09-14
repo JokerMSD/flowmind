@@ -6,6 +6,7 @@ import { createAdminAuthHook, registerAdminAuthRoutes } from "./admin/index.js";
 import { createAgentContainer } from "./agents/container.js";
 import { registerAgentErrorHandler } from "./agents/error-handler.js";
 import { registerAgentRoutes } from "./agents/routes.js";
+import { registerEditorRoutes } from "./editor/routes.js";
 import { createWhatsAppContainer, registerWhatsAppRoutes } from "./whatsapp/index.js";
 import type { WhatsAppProviderFactory } from "./whatsapp/index.js";
 import { parseWorkflow } from "./workflow-validation.js";
@@ -73,6 +74,7 @@ export function createServer(
   void server.register(async (protectedServer) => {
     protectedServer.addHook("onRequest", createAdminAuthHook(adminAuth));
     registerAgentRoutes(protectedServer, agents);
+    registerEditorRoutes(protectedServer, agents);
   });
   registerWhatsAppRoutes(server, whatsapp, adminAuth);
   registerAgentErrorHandler(server);

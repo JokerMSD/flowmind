@@ -529,6 +529,29 @@ test("inbox persists the provider display name and avatar", async () => {
   assert.equal(conversation?.metadata.avatarUrl, "https://example.com/avatar.jpg");
 });
 
+test("group inbox persists the participant identity on the message", async () => {
+  const context = fixture(createDefaultChannelSettings("csnf"));
+
+  await context.processor.process(
+    inbound({
+      conversationAddress: {
+        channelId: "whatsapp",
+        externalId: "120363000000000000@g.us",
+      },
+      conversationType: "group",
+      senderAddress: {
+        channelId: "whatsapp",
+        externalId: "5511777777777",
+      },
+      senderDisplayName: "Maria",
+    }),
+  );
+
+  const persisted = [...context.messages.values.values()][0];
+  assert.equal(persisted?.senderId, "5511777777777");
+  assert.equal(persisted?.senderDisplayName, "Maria");
+});
+
 test("pauseAll and every non-enabled authorization mode prevent automatic replies", async () => {
   const paused = fixture(enabledSettings({ pauseAll: true }));
   assert.deepEqual(await paused.processor.process(inbound()), {

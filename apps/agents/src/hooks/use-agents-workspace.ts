@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { agentsApi } from "../lib/agents-api";
 import { pollOccurrenceCycle } from "../lib/occurrence-poller";
-import type { AgentSummary, ChatMessage, Feedback, Reminder, ReminderInput, ReminderOccurrence } from "../types";
+import type {
+  AgentSummary,
+  ChatMessage,
+  Feedback,
+  Reminder,
+  ReminderInput,
+  ReminderOccurrence,
+} from "../types";
 
 export function useAgentsWorkspace() {
   const [agents, setAgents] = useState<readonly AgentSummary[]>([]);
@@ -18,6 +25,7 @@ export function useAgentsWorkspace() {
   const [apiConnected, setApiConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const occurrencesRef = useRef<readonly ReminderOccurrence[]>([]);
 
   const replaceOccurrences = useCallback((nextOccurrences: readonly ReminderOccurrence[]) => {
@@ -25,24 +33,33 @@ export function useAgentsWorkspace() {
     setOccurrences(nextOccurrences);
   }, []);
 
-  const refreshAgentData = useCallback(async (agentId: string) => {
-    try {
-      const [nextReminders, nextOccurrences] = await Promise.all([
-        agentsApi.listReminders(agentId),
-        agentsApi.listOccurrences(agentId),
-      ]);
-      setReminders(nextReminders);
-      replaceOccurrences(nextOccurrences);
-      setApiConnected(true);
-    } catch (error) {
-      setApiConnected(false);
-      throw error;
-    }
-  }, [replaceOccurrences]);
+  const refreshAgentData = useCallback(
+    async (agentId: string) => {
+      try {
+        const [nextReminders, nextOccurrences] = await Promise.all([
+          agentsApi.listReminders(agentId),
+          agentsApi.listOccurrences(agentId),
+        ]);
+        setReminders(nextReminders);
+        replaceOccurrences(nextOccurrences);
+        setApiConnected(true);
+      } catch (error) {
+        setApiConnected(false);
+        throw error;
+      }
+    },
+    [replaceOccurrences],
+  );
 
   useEffect(() => {
     void (async () => {
       try {
+        const auth = await agentsApi.authStatus();
+        if (!auth.authenticated) {
+          setAuthenticated(false);
+          return;
+        }
+        setAuthenticated(true);
         const nextAgents = await agentsApi.listAgents();
         setApiConnected(true);
         const initialAgent = nextAgents.find((agent) => agent.id === "csnf") ?? nextAgents[0];
@@ -66,13 +83,26 @@ export function useAgentsWorkspace() {
         }
       } catch (error) {
         setApiConnected(false);
-      window.localStorage.removeItem("flowmind.csnf.session");
+        window.localStorage.removeItem("flowmind.csnf.session");
         setFeedback({ kind: "error", message: readError(error) });
       } finally {
         setLoading(false);
       }
     })();
   }, [refreshAgentData]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    setFeedback(undefined);
+    try {
+      const auth = await agentsApi.login(email, password);
+      if (!auth.authenticated) return false;
+      window.location.reload();
+      return true;
+    } catch (error) {
+      setFeedback({ kind: "error", message: readError(error) });
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedAgentId) {
@@ -102,68 +132,94 @@ export function useAgentsWorkspace() {
     return () => window.clearInterval(timer);
   }, [replaceOccurrences, selectedAgentId]);
 
-  const sendMessage = useCallback(async (content: string) => {
-    const normalized = content.trim().replace(/\s+/g, " ");
-    if (!normalized || !selectedAgentId || sending) return;
+  const sendMessage = useCallback(
+    async (content: string) => {
+      const normalized = content.trim().replace(/\s+/g, " ");
+      if (!normalized || !selectedAgentId || sending) return;
 
-    setSending(true);
-    setFeedback(undefined);
-    try {
-      const response = await agentsApi.sendMessage(selectedAgentId, normalized, sessionId);
-      setApiConnected(true);
-      const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
-      if (selectedAgent) {
-        window.localStorage.setItem(sessionStorageKey(selectedAgent), response.sessionId);
+      setSending(true);
+      setFeedback(undefined);
+      try {
+        const response = await agentsApi.sendMessage(selectedAgentId, normalized, sessionId);
+        setApiConnected(true);
+        const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
+        if (selectedAgent) {
+          window.localStorage.setItem(sessionStorageKey(selectedAgent), response.sessionId);
+        }
+        setSessionId(response.sessionId);
+        const session = await agentsApi.getSession(response.sessionId);
+        setMessages(session.messages);
+      } catch (error) {
+        setApiConnected(false);
+        setFeedback({ kind: "error", message: readError(error) });
+      } finally {
+        setSending(false);
       }
-      setSessionId(response.sessionId);
-      const session = await agentsApi.getSession(response.sessionId);
-      setMessages(session.messages);
-    } catch (error) {
-      setApiConnected(false);
-      setFeedback({ kind: "error", message: readError(error) });
-    } finally {
-      setSending(false);
-    }
-  }, [agents, selectedAgentId, sending, sessionId]);
+    },
+    [agents, selectedAgentId, sending, sessionId],
+  );
 
-  const saveReminder = useCallback(async (input: ReminderInput, id?: string) => {
-    try {
-      await (id ? agentsApi.updateReminder(id, input) : agentsApi.createReminder(input));
-      await refreshAgentData(input.agentId);
-      setFeedback({ kind: "success", message: id ? "Lembrete atualizado." : "Lembrete criado." });
-      return true;
-    } catch (error) {
-      setApiConnected(false);
-      setFeedback({ kind: "error", message: readError(error) });
-      return false;
-    }
-  }, [refreshAgentData]);
+  const saveReminder = useCallback(
+    async (input: ReminderInput, id?: string) => {
+      try {
+        await (id ? agentsApi.updateReminder(id, input) : agentsApi.createReminder(input));
+        await refreshAgentData(input.agentId);
+        setFeedback({ kind: "success", message: id ? "Lembrete atualizado." : "Lembrete criado." });
+        return true;
+      } catch (error) {
+        setApiConnected(false);
+        setFeedback({ kind: "error", message: readError(error) });
+        return false;
+      }
+    },
+    [refreshAgentData],
+  );
 
-  const deleteReminder = useCallback(async (id: string) => {
-    if (!selectedAgentId) return;
-    try {
-      await agentsApi.deleteReminder(id);
-      await refreshAgentData(selectedAgentId);
-      setFeedback({ kind: "success", message: "Lembrete excluido." });
-    } catch (error) {
-      setApiConnected(false);
-      setFeedback({ kind: "error", message: readError(error) });
-    }
-  }, [refreshAgentData, selectedAgentId]);
+  const deleteReminder = useCallback(
+    async (id: string) => {
+      if (!selectedAgentId) return;
+      try {
+        await agentsApi.deleteReminder(id);
+        await refreshAgentData(selectedAgentId);
+        setFeedback({ kind: "success", message: "Lembrete excluido." });
+      } catch (error) {
+        setApiConnected(false);
+        setFeedback({ kind: "error", message: readError(error) });
+      }
+    },
+    [refreshAgentData, selectedAgentId],
+  );
 
-  const toggleReminder = useCallback(async (reminder: Reminder) => {
-    try {
-      await agentsApi.setReminderStatus(reminder.id, !reminder.enabled);
-      await refreshAgentData(reminder.agentId);
-    } catch (error) {
-      setApiConnected(false);
-      setFeedback({ kind: "error", message: readError(error) });
-    }
-  }, [refreshAgentData]);
+  const toggleReminder = useCallback(
+    async (reminder: Reminder) => {
+      try {
+        await agentsApi.setReminderStatus(reminder.id, !reminder.enabled);
+        await refreshAgentData(reminder.agentId);
+      } catch (error) {
+        setApiConnected(false);
+        setFeedback({ kind: "error", message: readError(error) });
+      }
+    },
+    [refreshAgentData],
+  );
 
   return {
-    agents, apiConnected, deleteReminder, feedback, loading, messages, occurrencePollingError, occurrences, reminders,
-    saveReminder, selectedAgentId, sending, sendMessage, toggleReminder,
+    agents,
+    apiConnected,
+    authenticated,
+    deleteReminder,
+    feedback,
+    loading,
+    login,
+    messages,
+    occurrencePollingError,
+    occurrences,
+    reminders,
+    saveReminder,
+    selectedAgentId,
+    sending,
+    sendMessage,
+    toggleReminder,
   };
 }
 

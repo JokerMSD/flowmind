@@ -90,10 +90,29 @@ Para habilitar o canal local:
 WHATSAPP_WEB_ENABLED=true
 ```
 
+O provider padrao continua sendo o Baileys. Para testar o provider alternativo
+baseado em `whatsapp-web.js`, configure:
+
+```text
+WHATSAPP_PROVIDER=webjs
+WHATSAPP_WEBJS_AUTH_PATH=./whatsapp-webjs-auth
+WHATSAPP_WEBJS_HEADLESS=true
+```
+
+Ao trocar o provider, o FlowMind preserva os dados locais, desativa a conexao
+anterior e exige um novo clique em Conectar. Apenas um provider e registrado por
+processo. Para voltar sem alterar codigo, use `WHATSAPP_PROVIDER=baileys`.
+
+O `whatsapp-web.js` usa Chromium/Puppeteer e oferece uma fonte mais completa de
+chats, contatos, historico e midias do WhatsApp Web. Em contrapartida, consome
+mais memoria que o Baileys e continua sendo uma integracao nao oficial, sujeita
+a mudancas do WhatsApp e bloqueio da conta. Para producao com garantia oficial,
+o caminho recomendado continua sendo a WhatsApp Cloud API.
+
 Depois execute `npm run start`, entre em `http://localhost:3002/agents`, faca
 login e abra o canal WhatsApp. O botao de conexao exibe o QR code na interface;
 credenciais e dados de sessao permanecem somente no caminho configurado por
-`WHATSAPP_WEB_AUTH_PATH`.
+`WHATSAPP_WEB_AUTH_PATH` ou `WHATSAPP_WEBJS_AUTH_PATH`.
 
 ### IA local com Ollama
 

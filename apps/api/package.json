@@ -24,6 +24,7 @@
     "@flowmind/node-core": "workspace:*",
     "@flowmind/schema": "workspace:*",
     "@flowmind/whatsapp-web": "workspace:*",
+    "@flowmind/whatsapp-webjs": "workspace:*",
     "fastify": "^5.2.1"
   },
   "devDependencies": {

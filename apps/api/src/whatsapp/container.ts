@@ -26,6 +26,7 @@ import {
 } from "@flowmind/channel-runtime";
 import type { AgentRuntimePort } from "@flowmind/channel-runtime";
 import { WhatsAppWebProvider } from "@flowmind/whatsapp-web";
+import { WhatsAppWebJsProvider } from "@flowmind/whatsapp-webjs";
 
 import { conflict, notFound, unavailable, WhatsAppApiError } from "./errors.js";
 import type {
@@ -74,15 +75,31 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     },
   });
   const providers = new ChannelProviderRegistry();
-  const provider: WhatsAppProviderPort = (
-    options.providerFactory ?? ((providerOptions) => new WhatsAppWebProvider(providerOptions))
-  )({
+  const selectedProvider = parseWhatsAppProvider(environment.WHATSAPP_PROVIDER);
+  const defaultAuthDirectory =
+    environment.WHATSAPP_WEB_AUTH_PATH ??
+    environment.FLOWMIND_WHATSAPP_AUTH_PATH ??
+    join(options.storagePath, "whatsapp-web-auth");
+  const providerOptions = {
     authDirectory:
-      environment.WHATSAPP_WEB_AUTH_PATH ??
-      environment.FLOWMIND_WHATSAPP_AUTH_PATH ??
-      join(options.storagePath, "whatsapp-web-auth"),
+      selectedProvider === "webjs"
+        ? (environment.WHATSAPP_WEBJS_AUTH_PATH ?? join(options.storagePath, "whatsapp-webjs-auth"))
+        : defaultAuthDirectory,
+    ...(selectedProvider === "webjs"
+      ? {
+          headless: environment.WHATSAPP_WEBJS_HEADLESS !== "false",
+          ...(environment.WHATSAPP_WEBJS_EXECUTABLE_PATH
+            ? { executablePath: environment.WHATSAPP_WEBJS_EXECUTABLE_PATH }
+            : {}),
+        }
+      : {}),
     now,
-  });
+  };
+  const provider: WhatsAppProviderPort = options.providerFactory
+    ? options.providerFactory(providerOptions)
+    : selectedProvider === "webjs"
+      ? new WhatsAppWebJsProvider(providerOptions)
+      : new WhatsAppWebProvider(providerOptions);
   providers.register(provider);
 
   const clock = { now };
@@ -117,8 +134,19 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
   });
 
   async function initialize(): Promise<void> {
-    if (!(await memory.connections.findById(WHATSAPP_PERSONAL_CONNECTION_ID))) {
-      await memory.connections.save(createWhatsAppPersonalConnectionSeed(now().toISOString()));
+    const existing = await memory.connections.findById(WHATSAPP_PERSONAL_CONNECTION_ID);
+    if (!existing) {
+      await memory.connections.save(
+        createWhatsAppPersonalConnectionSeed(now().toISOString(), provider.id),
+      );
+    } else if (existing.providerId !== provider.id) {
+      await memory.connections.save({
+        ...existing,
+        providerId: provider.id,
+        enabled: false,
+        status: "disconnected",
+        updatedAt: now().toISOString(),
+      });
     }
     await memory.settings.get();
     await memory.cleanup();
@@ -281,7 +309,8 @@ export function createWhatsAppContainer(options: CreateWhatsAppContainerOptions)
     if (!resolveIdentity) return conversations;
     return Promise.all(
       conversations.map(async (conversation) => {
-        if (hasContactDisplayName(conversation)) return conversation;
+        const hasAvatar = typeof conversation.metadata.avatarUrl === "string";
+        if (hasContactDisplayName(conversation) && hasAvatar) return conversation;
         try {
           const identity = await resolveIdentity(
             conversation.connectionId,
@@ -640,6 +669,14 @@ function parseRetentionMs(value: string | undefined): number {
     throw new Error("WHATSAPP_WEB_MESSAGE_RETENTION_DAYS must be a positive integer.");
   }
   return days * 24 * 60 * 60_000;
+}
+
+function parseWhatsAppProvider(value: string | undefined): "baileys" | "webjs" {
+  const normalized = value?.trim().toLowerCase() ?? "baileys";
+  if (normalized !== "baileys" && normalized !== "webjs") {
+    throw new Error("WHATSAPP_PROVIDER must be either baileys or webjs.");
+  }
+  return normalized;
 }
 
 class WhatsAppRateLimitError extends WhatsAppApiError {

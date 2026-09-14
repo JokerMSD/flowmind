@@ -12,6 +12,7 @@ const apiUrl = process.env.NEXT_PUBLIC_FLOWMIND_API_URL ?? "http://localhost:300
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
 
@@ -24,8 +25,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const agentsApi = {
+  authStatus: () => request<{ authenticated: boolean }>("/admin/auth/status"),
+  login: (email: string, password: string) =>
+    request<{ authenticated: boolean }>("/admin/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
   listAgents: () => request<AgentSummary[]>("/agents"),
-  getSession: (sessionId: string) => request<ChatSession>(`/sessions/${encodeURIComponent(sessionId)}`),
+  getSession: (sessionId: string) =>
+    request<ChatSession>(`/sessions/${encodeURIComponent(sessionId)}`),
   sendMessage: (agentId: string, message: string, sessionId?: string) =>
     request<ChatResponse>("/chat", {
       method: "POST",
@@ -36,7 +44,10 @@ export const agentsApi = {
   createReminder: (input: ReminderInput) =>
     request<Reminder>("/reminders", { method: "POST", body: JSON.stringify(input) }),
   updateReminder: (id: string, input: ReminderInput) =>
-    request<Reminder>(`/reminders/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+    request<Reminder>(`/reminders/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
   deleteReminder: (id: string) =>
     request<{ deleted: true }>(`/reminders/${encodeURIComponent(id)}`, { method: "DELETE" }),
   setReminderStatus: (id: string, enabled: boolean) =>

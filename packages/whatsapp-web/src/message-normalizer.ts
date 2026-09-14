@@ -85,7 +85,9 @@ export function normalizeInboundMessage(
       externalId: normalizeWhatsAppJid(participant),
     },
     ...(typeof message.pushName === "string" && message.pushName.trim().length > 0
-      ? { displayName: message.pushName.trim() }
+      ? group
+        ? { senderDisplayName: message.pushName.trim() }
+        : { displayName: message.pushName.trim() }
       : {}),
     content: text.content,
     occurredAt: occurredAt(message),

@@ -3,7 +3,6 @@ import type {
   WhatsAppConnectionSnapshot,
   WhatsAppChat,
   WhatsAppContact,
-  WhatsAppWebProviderOptions,
   WhatsAppHistoryCursor,
   WhatsAppMediaInfo,
 } from "@flowmind/whatsapp-web";
@@ -41,7 +40,16 @@ export interface WhatsAppProviderPort extends ChannelProvider {
   ): Promise<{ readonly displayName?: string; readonly avatarUrl?: string }>;
 }
 
-export type WhatsAppProviderFactory = (options: WhatsAppWebProviderOptions) => WhatsAppProviderPort;
+export interface WhatsAppProviderFactoryOptions {
+  readonly authDirectory: string;
+  readonly headless?: boolean;
+  readonly executablePath?: string;
+  readonly now?: () => Date;
+}
+
+export type WhatsAppProviderFactory = (
+  options: WhatsAppProviderFactoryOptions,
+) => WhatsAppProviderPort;
 
 export interface WhatsAppConnectionManagerPort {
   connect(connectionId: string): Promise<ChannelConnection>;

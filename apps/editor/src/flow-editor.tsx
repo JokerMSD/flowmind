@@ -28,16 +28,67 @@ import { useWorkflowEditor } from "./hooks/use-workflow-editor";
 import { applyValidationWarnings, validateGraph } from "./lib/validation";
 import { toWorkflow } from "./lib/workflow";
 import type { EditorCommand, EditorExecution } from "./types";
+import { RuntimeWorkspace } from "./runtime-workspace";
 
 const apiUrl = process.env.NEXT_PUBLIC_FLOWMIND_API_URL ?? "http://localhost:3001";
 const nodeTypes: NodeTypes = { flowmind: FlowMindNode };
 
 export function FlowEditor(): React.ReactElement {
+  const [workspace, setWorkspace] = useState<"workflow" | "csnf" | "reminders">("workflow");
+  useEffect(() => {
+    const selected = workspaceFromHash(window.location.hash);
+    if (selected) setWorkspace(selected);
+  }, []);
+
+  const selectWorkspace = (selected: "workflow" | "csnf" | "reminders") => {
+    setWorkspace(selected);
+    window.history.replaceState(
+      null,
+      "",
+      selected === "workflow" ? "#workflows" : `#${selected === "csnf" ? "bot-csnf" : "lembretes"}`,
+    );
+  };
   return (
-    <ReactFlowProvider>
-      <FlowEditorInner />
-    </ReactFlowProvider>
+    <div className="editor-root">
+      <nav className="workspace-tabs" aria-label="Workspaces">
+        <strong>FlowMind</strong>
+        <button
+          className={workspace === "workflow" ? "active" : ""}
+          onClick={() => selectWorkspace("workflow")}
+        >
+          Workflows
+        </button>
+        <button
+          className={workspace === "csnf" ? "active" : ""}
+          onClick={() => selectWorkspace("csnf")}
+        >
+          Bot CSNF
+        </button>
+        <button
+          className={workspace === "reminders" ? "active" : ""}
+          onClick={() => selectWorkspace("reminders")}
+        >
+          Lembretes
+        </button>
+      </nav>
+      <div className="editor-surface">
+        {workspace === "workflow" ? (
+          <ReactFlowProvider>
+            <FlowEditorInner />
+          </ReactFlowProvider>
+        ) : (
+          <RuntimeWorkspace workspaceId={workspace} />
+        )}
+      </div>
+    </div>
   );
+}
+
+function workspaceFromHash(hash: string): "workflow" | "csnf" | "reminders" | undefined {
+  if (hash === "#bot-csnf") return "csnf";
+  if (hash === "#lembretes") return "reminders";
+  if (hash === "#workflows") return "workflow";
+  return undefined;
 }
 
 function FlowEditorInner(): React.ReactElement {
@@ -48,7 +99,13 @@ function FlowEditorInner(): React.ReactElement {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [debugExpanded, setDebugExpanded] = useState(false);
-  const [quickSearch, setQuickSearch] = useState<{ open: boolean; x: number; y: number; flowX: number; flowY: number }>({
+  const [quickSearch, setQuickSearch] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    flowX: number;
+    flowY: number;
+  }>({
     open: false,
     x: 0,
     y: 0,
@@ -83,11 +140,24 @@ function FlowEditorInner(): React.ReactElement {
     return () => window.cancelAnimationFrame(frame);
   }, [editor.nodes.length, inspectorOpen, nodesInitialized, reactFlow, sidebarOpen]);
 
-  const workflow = useMemo(() => toWorkflow(editor.nodes, editor.edges), [editor.edges, editor.nodes]);
-  const issues = useMemo(() => validateGraph(editor.nodes, editor.edges), [editor.edges, editor.nodes]);
-  const displayNodes = useMemo(() => applyValidationWarnings(editor.nodes, issues), [editor.nodes, issues]);
+  const workflow = useMemo(
+    () => toWorkflow(editor.nodes, editor.edges),
+    [editor.edges, editor.nodes],
+  );
+  const issues = useMemo(
+    () => validateGraph(editor.nodes, editor.edges),
+    [editor.edges, editor.nodes],
+  );
+  const displayNodes = useMemo(
+    () => applyValidationWarnings(editor.nodes, issues),
+    [editor.nodes, issues],
+  );
   const displayEdges = useMemo(
-    () => editor.edges.map((edge) => ({ ...edge, animated: isRunning || isExecutedEdge(edge, execution.completedNodeIds) })),
+    () =>
+      editor.edges.map((edge) => ({
+        ...edge,
+        animated: isRunning || isExecutedEdge(edge, execution.completedNodeIds),
+      })),
     [editor.edges, execution.completedNodeIds, isRunning],
   );
 
@@ -117,29 +187,32 @@ function FlowEditorInner(): React.ReactElement {
     }
   }, [editor, workflow]);
 
-  const runCommand = useCallback((command: EditorCommand) => {
-    if (command === "execute") {
-      void runWorkflow();
-      return;
-    }
+  const runCommand = useCallback(
+    (command: EditorCommand) => {
+      if (command === "execute") {
+        void runWorkflow();
+        return;
+      }
 
-    if (command === "save") {
-      editor.saveWorkflow();
-      return;
-    }
+      if (command === "save") {
+        editor.saveWorkflow();
+        return;
+      }
 
-    if (command === "open") {
-      setError(editor.loadStoredWorkflow() ? null : "Nenhum workflow salvo localmente.");
-      return;
-    }
+      if (command === "open") {
+        setError(editor.loadStoredWorkflow() ? null : "Nenhum workflow salvo localmente.");
+        return;
+      }
 
-    if (command === "clear") {
-      editor.clearCanvas();
-      return;
-    }
+      if (command === "clear") {
+        editor.clearCanvas();
+        return;
+      }
 
-    editor.addNode(command.replace("add:", ""));
-  }, [editor, runWorkflow]);
+      editor.addNode(command.replace("add:", ""));
+    },
+    [editor, runWorkflow],
+  );
 
   useEditorShortcuts({
     onCommandPalette: () => setPaletteOpen(true),
@@ -154,8 +227,12 @@ function FlowEditorInner(): React.ReactElement {
   });
 
   return (
-    <main className={`app-shell ${sidebarOpen ? "sidebar-open" : ""} ${inspectorOpen ? "inspector-open" : ""}`}>
-      {sidebarOpen ? <Sidebar onAddNode={editor.addNode} onClose={() => setSidebarOpen(false)} /> : null}
+    <main
+      className={`app-shell ${sidebarOpen ? "sidebar-open" : ""} ${inspectorOpen ? "inspector-open" : ""}`}
+    >
+      {sidebarOpen ? (
+        <Sidebar onAddNode={editor.addNode} onClose={() => setSidebarOpen(false)} />
+      ) : null}
       <section className="workspace">
         <Toolbar
           canRedo={editor.canRedo}
@@ -176,12 +253,21 @@ function FlowEditorInner(): React.ReactElement {
           onDoubleClick={(event) => {
             const target = event.target;
 
-            if (!(target instanceof HTMLElement) || !target.classList.contains("react-flow__pane")) {
+            if (
+              !(target instanceof HTMLElement) ||
+              !target.classList.contains("react-flow__pane")
+            ) {
               return;
             }
 
             const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-            setQuickSearch({ open: true, x: event.clientX, y: event.clientY, flowX: position.x, flowY: position.y });
+            setQuickSearch({
+              open: true,
+              x: event.clientX,
+              y: event.clientY,
+              flowX: position.x,
+              flowY: position.y,
+            });
           }}
         >
           <ReactFlow
@@ -198,12 +284,20 @@ function FlowEditorInner(): React.ReactElement {
             snapToGrid
           >
             <Background gap={16} />
-            <MiniMap bgColor="#11151c" maskColor="rgb(8 10 14 / 72%)" nodeColor="#3a4554" pannable zoomable />
+            <MiniMap
+              bgColor="#11151c"
+              maskColor="rgb(8 10 14 / 72%)"
+              nodeColor="#3a4554"
+              pannable
+              zoomable
+            />
             <Controls />
           </ReactFlow>
           <QuickNodeSearch
             onClose={() => setQuickSearch((state) => ({ ...state, open: false }))}
-            onSelect={(type) => editor.addNode(type, { x: quickSearch.flowX, y: quickSearch.flowY })}
+            onSelect={(type) =>
+              editor.addNode(type, { x: quickSearch.flowX, y: quickSearch.flowY })
+            }
             open={quickSearch.open}
             position={{ x: quickSearch.x, y: quickSearch.y }}
           />
@@ -215,15 +309,17 @@ function FlowEditorInner(): React.ReactElement {
           onToggle={() => setDebugExpanded((open) => !open)}
         />
       </section>
-      {inspectorOpen ? <Inspector
-        issues={issues}
-        onClose={() => setInspectorOpen(false)}
-        onJsonChange={editor.setWorkflowJson}
-        onLoadJson={() => setError(editor.loadWorkflowJson() ? null : "JSON invalido.")}
-        onUpdateMessage={editor.updateSelectedMessage}
-        selectedNode={editor.selectedNode}
-        workflowJson={editor.workflowJson}
-      /> : null}
+      {inspectorOpen ? (
+        <Inspector
+          issues={issues}
+          onClose={() => setInspectorOpen(false)}
+          onJsonChange={editor.setWorkflowJson}
+          onLoadJson={() => setError(editor.loadWorkflowJson() ? null : "JSON invalido.")}
+          onUpdateMessage={editor.updateSelectedMessage}
+          selectedNode={editor.selectedNode}
+          workflowJson={editor.workflowJson}
+        />
+      ) : null}
       <CommandPalette onClose={() => setPaletteOpen(false)} onRun={runCommand} open={paletteOpen} />
     </main>
   );
@@ -232,7 +328,11 @@ function FlowEditorInner(): React.ReactElement {
 async function replayExecution(
   result: WorkflowExecutionResult,
   setExecution: (execution: EditorExecution) => void,
-  setVisualState: (activeNodeId: string | null, completedNodeIds: readonly string[], durations: ReadonlyMap<string, number>) => void,
+  setVisualState: (
+    activeNodeId: string | null,
+    completedNodeIds: readonly string[],
+    durations: ReadonlyMap<string, number>,
+  ) => void,
 ): Promise<void> {
   const completed: string[] = [];
   const durations = new Map<string, number>();

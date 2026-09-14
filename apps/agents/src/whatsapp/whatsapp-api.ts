@@ -61,6 +61,7 @@ function connectionFrom(payload: unknown): WhatsAppConnection {
     qrExpiresAt: typeof value.qrExpiresAt === "string" ? value.qrExpiresAt : null,
     ...(typeof value.error === "string" ? { error: value.error } : {}),
     globalEnabled: Boolean(value.globalEnabled ?? value.enabled),
+    groupsEnabled: Boolean(value.allowGroups),
     paused: Boolean(value.paused ?? value.pauseAll),
     historySyncStatus:
       value.historySyncStatus === "syncing" ||
@@ -131,10 +132,10 @@ export const whatsAppApi = {
       method: "POST",
       body: JSON.stringify({ connectionId }),
     }),
-  settings: (globalEnabled: boolean) =>
+  settings: (update: { globalEnabled?: boolean; allowGroups?: boolean }) =>
     request<unknown>("/integrations/whatsapp/settings", {
       method: "PATCH",
-      body: JSON.stringify({ globalEnabled }),
+      body: JSON.stringify(update),
     }),
   pause: (paused: boolean) =>
     request<unknown>(`/integrations/whatsapp/${paused ? "pause" : "resume"}`, { method: "POST" }),

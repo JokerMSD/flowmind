@@ -48,6 +48,7 @@ test("normalizes group sender and extended text", () => {
         participant: "5511777777777:2@s.whatsapp.net",
         fromMe: false,
       },
+      pushName: "Maria",
       message: { extendedTextMessage: { text: "Mensagem do grupo" } },
     }),
   );
@@ -55,6 +56,8 @@ test("normalizes group sender and extended text", () => {
   assert.equal(normalized?.conversationType, "group");
   assert.equal(normalized?.conversationAddress.externalId, "120363000000000000@g.us");
   assert.equal(normalized?.senderAddress.externalId, "5511777777777");
+  assert.equal(normalized?.senderDisplayName, "Maria");
+  assert.equal(normalized?.displayName, undefined);
   assert.equal(normalized?.content, "Mensagem do grupo");
   assert.equal(normalized?.unsupported, false);
 });

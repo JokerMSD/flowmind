@@ -6,6 +6,8 @@ dist/
 coverage/
 storage/
 whatsapp-auth/
+whatsapp-webjs-auth/
+.wwebjs_cache/
 .flowmind/whatsapp-auth/
 .flowmind/dev.pid
 *.log

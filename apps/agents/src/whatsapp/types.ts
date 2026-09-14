@@ -20,6 +20,7 @@ export interface WhatsAppConnection {
   qrExpiresAt?: string | null;
   error?: string;
   globalEnabled: boolean;
+  groupsEnabled: boolean;
   paused: boolean;
   historySyncStatus?: "idle" | "syncing" | "complete" | "paused";
   historySyncProgress?: number;

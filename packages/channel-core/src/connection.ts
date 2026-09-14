@@ -46,12 +46,16 @@ export interface ProviderConnection {
 
 export const WHATSAPP_PERSONAL_CONNECTION_ID = "whatsapp-personal";
 export const WHATSAPP_WEB_PROVIDER_ID = "whatsapp-web";
+export const WHATSAPP_WEBJS_PROVIDER_ID = "whatsapp-webjs";
 
-export function createWhatsAppPersonalConnectionSeed(timestamp: string): ChannelConnection {
+export function createWhatsAppPersonalConnectionSeed(
+  timestamp: string,
+  providerId = WHATSAPP_WEB_PROVIDER_ID,
+): ChannelConnection {
   return {
     id: WHATSAPP_PERSONAL_CONNECTION_ID,
     channelId: WHATSAPP_CHANNEL_ID,
-    providerId: WHATSAPP_WEB_PROVIDER_ID,
+    providerId,
     name: "WhatsApp pessoal",
     enabled: false,
     status: "disconnected",

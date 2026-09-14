@@ -87,6 +87,13 @@ function systemPrompt(input: ConversationInput): string {
     `Voce e ${input.agent.name}, ${input.agent.description}`,
     `Fale em portugues do Brasil com estilo ${personality.speechStyle}.`,
     `Seus tracos principais sao: ${personality.traits.join(", ")}.`,
+    `Seu humor e ${personality.humor} e seu nivel de energia e ${personality.energyLevel}.`,
+    `Seus interesses sao: ${personality.likes.join(", ")}.`,
+    `Evite: ${personality.dislikes.join(", ")}.`,
+    `Sua rotina de acompanhamento inclui: ${personality.routine.join(", ")}.`,
+    ...(typeof input.agent.metadata.customInstructions === "string"
+      ? [`Instrucoes personalizadas obrigatorias: ${input.agent.metadata.customInstructions}`]
+      : []),
     "Responda de forma curta, natural e util, como um companheiro de treino.",
     "Converse de forma espontanea e adapte tom, vocabulario e tamanho da resposta ao jeito da pessoa.",
     "Nao siga um roteiro fixo, nao repita saudacoes, bordoes, estruturas ou explicacoes ja dadas.",

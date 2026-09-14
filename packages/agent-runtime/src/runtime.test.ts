@@ -199,7 +199,10 @@ test("ollama provider sends the system prompt and session history", async () => 
     timestamp: "2026-07-28T12:00:00Z",
   };
   const output = await provider.generateResponse({
-    agent: csnfAgent,
+    agent: {
+      ...csnfAgent,
+      metadata: { ...csnfAgent.metadata, customInstructions: "Use exemplos de corrida." },
+    },
     message,
     session: {
       id: "session-1",
@@ -218,6 +221,7 @@ test("ollama provider sends the system prompt and session history", async () => 
   assert.match(JSON.stringify(requestBody), /pergunte naturalmente/);
   assert.match(JSON.stringify(requestBody), /Nao siga um roteiro fixo/);
   assert.match(JSON.stringify(requestBody), /uma pergunta util por resposta/);
+  assert.match(JSON.stringify(requestBody), /Use exemplos de corrida/);
 });
 
 test("ollama provider uses its fallback for HTTP errors and empty responses", async () => {

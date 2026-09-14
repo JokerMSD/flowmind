@@ -82,8 +82,8 @@ individualmente:
 | Pareamento inicial | PASS | Confirmacao direta do usuario | Sessao real atualmente conectada deve ser preservada |
 | Estado conectado no painel | PASS | Confirmacao direta do usuario em painel local | Indicador conectado observado sem novo QR ou pareamento |
 | Envio real pelo FlowMind | PASS | Envio confirmado em conversa privada controlada, com entrega unica no telefone real | Saida refletida no painel sem duplicidade, erro ou resposta automatica |
-| Recebimento real no FlowMind | FAIL | Falha de autenticacao observada antes do recebimento externo | Provider classificou erro de stream como terminal e a sessao persistida foi removida |
-| Atualizacao e ordenacao da inbox | BLOCKED | Nao executado depois da perda da sessao | Requer sessao real conectada para repetir o bloco |
+| Recebimento real no FlowMind | PASS | Mensagem externa recebida no painel em conversa privada controlada | Confirmacao direta do usuario, sem duplicidade |
+| Atualizacao e ordenacao da inbox | PASS | Preview, horario, contador e posicao atualizados apos nova atividade | Confirmacao direta do usuario, sem conversa paralela |
 | Persistencia apos reinicio | PENDENTE | A registrar | Reiniciar apenas os processos, preservando a autenticacao |
 | Resposta do CSNF | PENDENTE | A registrar | Validar em conversa habilitada |
 | Continuidade sem nova mencao | PENDENTE | A registrar | Validar dentro do contexto ativo |

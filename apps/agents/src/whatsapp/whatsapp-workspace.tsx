@@ -22,6 +22,7 @@ const emptyConnection: WhatsAppConnection = {
   method: "QR code",
   status: "disconnected",
   globalEnabled: false,
+  groupsEnabled: false,
   paused: false,
 };
 const modes: ConversationMode[] = ["enabled", "manual", "paused", "disabled", "blocked"];
@@ -152,6 +153,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const [remindersOpen, setRemindersOpen] = useState(false);
   const selectedId = useRef<string | null>(null);
   const messagesViewport = useRef<HTMLDivElement | null>(null);
+  const followLatestMessage = useRef(true);
 
   useEffect(() => {
     selectedId.current = selected?.id ?? null;
@@ -230,7 +232,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
 
   useEffect(() => {
     const viewport = messagesViewport.current;
-    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    if (viewport && followLatestMessage.current) viewport.scrollTop = viewport.scrollHeight;
   }, [messages]);
 
   const run = async (action: () => Promise<unknown>, success: string) => {
@@ -263,19 +265,29 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const send = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !draft.trim()) return;
+    followLatestMessage.current = true;
     await run(async () => {
       await whatsAppApi.send(selected.id, draft.trim());
       setDraft("");
     }, "Mensagem enviada.");
   };
+  const allowedConversations = useMemo(
+    () =>
+      connection.groupsEnabled
+        ? conversations
+        : conversations.filter((item) => item.type !== "group"),
+    [connection.groupsEnabled, conversations],
+  );
   const visibleConversations = useMemo(() => {
-    if (inboxFilter === "unread") return conversations.filter((item) => (item.unread ?? 0) > 0);
-    if (inboxFilter === "groups") return conversations.filter((item) => item.type === "group");
-    return conversations;
-  }, [conversations, inboxFilter]);
+    if (inboxFilter === "unread")
+      return allowedConversations.filter((item) => (item.unread ?? 0) > 0);
+    if (inboxFilter === "groups")
+      return allowedConversations.filter((item) => item.type === "group");
+    return allowedConversations;
+  }, [allowedConversations, inboxFilter]);
   const unreadConversations = useMemo(
-    () => conversations.filter((item) => (item.unread ?? 0) > 0).length,
-    [conversations],
+    () => allowedConversations.filter((item) => (item.unread ?? 0) > 0).length,
+    [allowedConversations],
   );
   const groupConversations = useMemo(
     () => conversations.filter((item) => item.type === "group").length,
@@ -299,6 +311,16 @@ export function WhatsAppWorkspace(): React.ReactElement {
   const canFetchHistory =
     connection.historySyncStatus === "complete" ||
     connection.historySyncStatus === "paused";
+
+  useEffect(() => {
+    if (connection.groupsEnabled) return;
+    if (inboxFilter === "groups") setInboxFilter("all");
+    if (selected?.type !== "group") return;
+    const replacement = conversations.find((conversation) => conversation.type === "private");
+    followLatestMessage.current = true;
+    setSelected(replacement ?? null);
+    if (!replacement) setMessages([]);
+  }, [connection.groupsEnabled, conversations, inboxFilter, selected?.type]);
 
   if (authenticated === null)
     return <main className="wa-loading">Carregando canal WhatsApp...</main>;
@@ -428,8 +450,25 @@ export function WhatsAppWorkspace(): React.ReactElement {
               disabled={busy}
               onChange={(event) =>
                 void run(
-                  () => whatsAppApi.settings(event.target.checked),
+                  () => whatsAppApi.settings({ globalEnabled: event.target.checked }),
                   event.target.checked ? "Canal ativado." : "Canal desativado.",
+                )
+              }
+            />
+            <i />
+          </label>
+          <label className="wa-switch">
+            Grupos
+            <input
+              type="checkbox"
+              checked={connection.groupsEnabled}
+              disabled={busy || !connection.globalEnabled}
+              onChange={(event) =>
+                void run(
+                  () => whatsAppApi.settings({ allowGroups: event.target.checked }),
+                  event.target.checked
+                    ? "Automacao em grupos permitida."
+                    : "Automacao em grupos desativada.",
                 )
               }
             />
@@ -486,7 +525,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
               </strong>
               <span>
                 {connection.historySyncProgress === undefined
-                  ? `${conversations.length} conversas recebidas`
+                  ? `${allowedConversations.length} conversas recebidas`
                   : `${connection.historySyncProgress}%`}
               </span>
             </div>
@@ -512,7 +551,7 @@ export function WhatsAppWorkspace(): React.ReactElement {
               className={activeList === "conversations" ? "active" : ""}
               onClick={() => setActiveList("conversations")}
             >
-              Conversas <span>{conversations.length}</span>
+              Conversas <span>{allowedConversations.length}</span>
             </button>
             <button
               role="tab"
@@ -543,12 +582,14 @@ export function WhatsAppWorkspace(): React.ReactElement {
               >
                 Não lidas {unreadConversations || ""}
               </button>
-              <button
-                className={inboxFilter === "groups" ? "active" : ""}
-                onClick={() => setInboxFilter("groups")}
-              >
-                Grupos {groupConversations || ""}
-              </button>
+              {connection.groupsEnabled ? (
+                <button
+                  className={inboxFilter === "groups" ? "active" : ""}
+                  onClick={() => setInboxFilter("groups")}
+                >
+                  Grupos {groupConversations || ""}
+                </button>
+              ) : null}
             </div>
           ) : (
             <p className="wa-filter-label">{visibleContacts.length} contatos sincronizados</p>
@@ -560,7 +601,10 @@ export function WhatsAppWorkspace(): React.ReactElement {
                   <button
                     className={selected?.id === item.id ? "selected" : ""}
                     key={item.id}
-                    onClick={() => setSelected(item)}
+                    onClick={() => {
+                      followLatestMessage.current = true;
+                      setSelected(item);
+                    }}
                   >
                     <Avatar identity={item} />
                     <span className="wa-conversation-copy">
@@ -591,7 +635,11 @@ export function WhatsAppWorkspace(): React.ReactElement {
                       className={conversation && selected?.id === conversation.id ? "selected" : ""}
                       disabled={!conversation}
                       key={contact.id}
-                      onClick={() => conversation && setSelected(conversation)}
+                      onClick={() => {
+                        if (!conversation) return;
+                        followLatestMessage.current = true;
+                        setSelected(conversation);
+                      }}
                     >
                       <Avatar identity={contact} />
                       <span className="wa-conversation-copy">
@@ -656,7 +704,15 @@ export function WhatsAppWorkspace(): React.ReactElement {
                   </button>
                 </div>
               </header>
-              <div className="wa-messages" ref={messagesViewport}>
+              <div
+                className="wa-messages"
+                ref={messagesViewport}
+                onScroll={(event) => {
+                  const viewport = event.currentTarget;
+                  followLatestMessage.current =
+                    viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+                }}
+              >
                 {messages.map((message, index) => {
                   if (unavailableMedia.has(message.id) && !message.body.trim()) return null;
                   const previous = messages[index - 1];
